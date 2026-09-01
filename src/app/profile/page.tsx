@@ -10,6 +10,8 @@ export default function ProfilePage() {
   const [posts, setPosts] = useState<PostType[]>([]);
   const [anonId, setAnonId] = useState<string>("UNKNOWN");
   const [loading, setLoading] = useState(true);
+  const [messages, setMessages] = useState<Array<{ id: string, sender_id: string, content: string, created_at: string }>>([]);
+  const [activeTab, setActiveTab] = useState<'posts' | 'inbox'>('posts');
   const router = useRouter();
 
   useEffect(() => {
@@ -46,6 +48,59 @@ export default function ProfilePage() {
                flags: p.flags,
                createdAt: p.created_at
              })));
+          }
+
+          const { data: messagesData } = await supabase.from('messages').select('*').eq('receiver_id', profile.anon_id).order('created_at', { ascending: false });
+          if (messagesData) {
+            const privateJwkStr = localStorage.getItem(`privateKey_${profile.anon_id}`);
+            const decryptedMessages = [];
+            let privateKey = null;
+            if (privateJwkStr) {
+               try {
+                 privateKey = await window.crypto.subtle.importKey(
+                   "jwk",
+                   JSON.parse(privateJwkStr),
+                   { name: "RSA-OAEP", hash: "SHA-256" },
+                   true,
+                   ["decrypt"]
+                 );
+               } catch(e) { console.error("Failed to import private key"); }
+            }
+
+            for (const msg of messagesData) {
+               let decryptedContent = msg.encrypted_content;
+               if (privateKey && msg.encrypted_content.startsWith("ENC:[RSA-OAEP]:")) {
+                 try {
+                   const base64 = msg.encrypted_content.split(":")[2];
+                   const binaryString = atob(base64);
+                   const bytes = new Uint8Array(binaryString.length);
+                   for (let i = 0; i < binaryString.length; i++) {
+                       bytes[i] = binaryString.charCodeAt(i);
+                   }
+                   const decrypted = await window.crypto.subtle.decrypt(
+                     { name: "RSA-OAEP" },
+                     privateKey,
+                     bytes
+                   );
+                   const decoder = new TextDecoder();
+                   decryptedContent = decoder.decode(decrypted);
+                 } catch (e) {
+                   console.error("Failed to decrypt message");
+                   decryptedContent = "ERROR: UNABLE TO DECRYPT";
+                 }
+               } else if (msg.encrypted_content.startsWith("ENC:[AES-GCM]:")) {
+                  decryptedContent = "LEGACY MESSAGE - DECRYPTION NO LONGER SUPPORTED";
+               } else {
+                 try { decryptedContent = decodeURIComponent(escape(atob(msg.encrypted_content))); } catch(e) {}
+               }
+               decryptedMessages.push({
+                 id: msg.id,
+                 sender_id: msg.sender_id,
+                 content: decryptedContent,
+                 created_at: msg.created_at
+               });
+            }
+            setMessages(decryptedMessages);
           }
         }
       } else {
@@ -96,14 +151,50 @@ export default function ProfilePage() {
         </div>
       </section>
 
+      <div className="flex border-b-2 border-black mb-6">
+        <button
+          onClick={() => setActiveTab('posts')}
+          className={`flex-1 font-bold uppercase tracking-tight p-4 ${activeTab === 'posts' ? 'bg-black text-white' : 'hover:bg-gray-100'}`}
+        >
+          Your Publications
+        </button>
+        <button
+          onClick={() => setActiveTab('inbox')}
+          className={`flex-1 font-bold uppercase tracking-tight p-4 ${activeTab === 'inbox' ? 'bg-black text-white' : 'hover:bg-gray-100'}`}
+        >
+          Inbox ({messages.length})
+        </button>
+      </div>
+
       <section>
-        <h2 className="text-xl font-bold mb-6 uppercase tracking-tight border-b-2 border-black pb-2">Your Publications</h2>
-        {posts.length === 0 ? (
-          <p className="text-center font-mono uppercase border border-black p-8 bg-gray-50">NO PUBLICATIONS YET.</p>
-        ) : (
-          posts.map(post => (
-            <Post key={post.id} post={post} onFlag={handleFlag} />
-          ))
+        {activeTab === 'posts' && (
+          <>
+            {posts.length === 0 ? (
+              <p className="text-center font-mono uppercase border border-black p-8 bg-gray-50">NO PUBLICATIONS YET.</p>
+            ) : (
+              posts.map(post => (
+                <Post key={post.id} post={post} onFlag={handleFlag} />
+              ))
+            )}
+          </>
+        )}
+
+        {activeTab === 'inbox' && (
+          <div className="space-y-4">
+            {messages.length === 0 ? (
+              <p className="text-center font-mono uppercase border border-black p-8 bg-gray-50">NO MESSAGES IN INBOX.</p>
+            ) : (
+              messages.map(msg => (
+                <div key={msg.id} className="border-2 border-black p-4 bg-white relative">
+                  <div className="flex justify-between items-center mb-2 border-b border-gray-300 pb-2">
+                    <span className="font-bold uppercase text-xs">FROM: {msg.sender_id}</span>
+                    <span className="font-mono text-[10px] text-gray-500">{new Date(msg.created_at).toLocaleString()}</span>
+                  </div>
+                  <p className="font-mono text-sm whitespace-pre-wrap">{msg.content}</p>
+                </div>
+              ))
+            )}
+          </div>
         )}
       </section>
     </main>

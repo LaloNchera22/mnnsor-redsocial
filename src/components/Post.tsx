@@ -8,54 +8,39 @@ interface PostProps {
 }
 
 
-  const encryptMessage = async (text: string, recipientId: string): Promise<string> => {
+  const encryptMessage = async (text: string, recipientId: string): Promise<string | null> => {
+    if (!supabase) return btoa(unescape(encodeURIComponent(text)));
     try {
-       // Ideally we would fetch the recipient's public key from Supabase here.
-       // For this implementation, we will derive a key securely from the recipientId
-       // to act as a stand-in for true public key distribution without transmitting the key itself.
-       const encoder = new TextEncoder();
-       const data = encoder.encode(text);
+       const { data } = await supabase.from('profiles').select('public_key').eq('anon_id', recipientId).single();
+       if (!data || !data.public_key) {
+         throw new Error("Recipient public key not found");
+       }
 
-       // Derive a key from the recipientId string using PBKDF2
-       const keyMaterial = await window.crypto.subtle.importKey(
-         "raw",
-         encoder.encode(recipientId.padEnd(32, '0')), // pad to ensure sufficient length
-         "PBKDF2",
-         false,
-         ["deriveKey"]
-       );
-
-       const salt = window.crypto.getRandomValues(new Uint8Array(16));
-
-       const key = await window.crypto.subtle.deriveKey(
+       const publicJwk = JSON.parse(data.public_key);
+       const publicKey = await window.crypto.subtle.importKey(
+         "jwk",
+         publicJwk,
          {
-           name: "PBKDF2",
-           salt: salt,
-           iterations: 100000,
-           hash: "SHA-256"
+           name: "RSA-OAEP",
+           hash: "SHA-256",
          },
-         keyMaterial,
-         { name: "AES-GCM", length: 256 },
-         false,
-         ["encrypt", "decrypt"]
+         true,
+         ["encrypt"]
        );
 
-       const iv = window.crypto.getRandomValues(new Uint8Array(12));
+       const encoder = new TextEncoder();
+       const encodedMessage = encoder.encode(text);
        const encrypted = await window.crypto.subtle.encrypt(
-         { name: "AES-GCM", iv },
-         key,
-         data
+         { name: "RSA-OAEP" },
+         publicKey,
+         encodedMessage
        );
 
-       const saltBase64 = btoa(String.fromCharCode.apply(null, Array.from(salt)));
-       const ivBase64 = btoa(String.fromCharCode.apply(null, Array.from(iv)));
        const encryptedBase64 = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(encrypted))));
-
-       // The recipient can derive the same key from their own ID and the provided salt.
-       // The key itself is NOT transmitted.
-       return `ENC:[AES-GCM]:${saltBase64}:${ivBase64}:${encryptedBase64}`;
+       return `ENC:[RSA-OAEP]:${encryptedBase64}`;
     } catch (e) {
-       return btoa(unescape(encodeURIComponent(text)));
+       console.error("Encryption error", e);
+       return null;
     }
   };
 
@@ -204,6 +189,12 @@ export default function Post({ post, onFlag }: PostProps) {
     if (message) {
       if (supabase && anonId) {
         const encryptedMessage = await encryptMessage(message, post.authorId);
+
+        if (!encryptedMessage) {
+          alert(`ERROR: SECURE ENCRYPTION FAILED. MESSAGE ABORTED.`);
+          return;
+        }
+
         const { error } = await supabase.from('messages').insert([{
            sender_id: anonId,
            receiver_id: post.authorId,
@@ -354,17 +345,19 @@ export default function Post({ post, onFlag }: PostProps) {
         <span className="text-xs uppercase font-mono">
           TYPE: {post.type} | FLAGS: {post.flags}
         </span>
-        <button
-          onClick={() => {
-             setIsFlagged(true);
-             onFlag(post.id);
-          }}
-          disabled={isFlagged}
-          aria-label="Flag as fake news"
-          className={`text-xs py-2 px-4 border uppercase font-bold transition-colors disabled:opacity-50 ${isFlagged ? 'bg-black text-white border-black' : 'text-red-600 border-red-600 hover:bg-red-600 hover:text-white'}`}
-        >
-          {isFlagged ? 'FLAGGED' : 'FLAG AS FAKE NEWS'}
-        </button>
+        {post.authorId !== anonId && (
+          <button
+            onClick={() => {
+               setIsFlagged(true);
+               onFlag(post.id);
+            }}
+            disabled={isFlagged}
+            aria-label="Flag as fake news"
+            className={`text-xs py-2 px-4 border uppercase font-bold transition-colors disabled:opacity-50 ${isFlagged ? 'bg-black text-white border-black' : 'text-red-600 border-red-600 hover:bg-red-600 hover:text-white'}`}
+          >
+            {isFlagged ? 'FLAGGED' : 'FLAG AS FAKE NEWS'}
+          </button>
+        )}
       </footer>
     </article>
   );

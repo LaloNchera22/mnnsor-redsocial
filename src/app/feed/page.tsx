@@ -39,6 +39,13 @@ export default function Feed() {
     }
   }, []);
 
+  const markNotificationsAsRead = async () => {
+    if (supabase && anonId && anonId !== "UNKNOWN") {
+      await supabase.from('notifications').update({ read: true }).eq('user_id', anonId).eq('read', false);
+      setNotifications(prev => prev.map(n => ({ ...n, read: true })));
+    }
+  };
+
   const fetchPosts = useCallback(async (pageNum: number, search: string = "", reset: boolean = false) => {
     if (supabase) {
       const from = (pageNum - 1) * 10;
@@ -89,6 +96,8 @@ export default function Feed() {
   }, []);
 
   useEffect(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    let subscription: any = null;
     const checkAuth = async () => {
       let currentAnonId = "UNKNOWN";
       if (supabase) {
@@ -114,9 +123,23 @@ export default function Feed() {
       setAnonId(currentAnonId);
       fetchPosts(1, debouncedSearch, true);
       fetchNotifications(currentAnonId);
+
+      if (supabase && currentAnonId !== "UNKNOWN") {
+        subscription = supabase.channel(`notifications_${currentAnonId}`)
+          .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${currentAnonId}` }, payload => {
+            setNotifications(prev => [payload.new, ...prev].slice(0, 10));
+          })
+          .subscribe();
+      }
     };
 
     checkAuth();
+
+    return () => {
+      if (subscription && supabase) {
+         supabase.removeChannel(subscription);
+      }
+    };
   }, [router, fetchPosts, debouncedSearch, fetchNotifications]); // Re-fetch on search change
 
   // Real-time subscription
@@ -266,9 +289,15 @@ export default function Feed() {
           </p>
         </div>
         <div className="flex gap-4 mt-4 md:mt-0 items-center">
-          <button onClick={() => setShowNotifications(!showNotifications)} className="text-xs font-bold uppercase hover:bg-black hover:text-white border border-black px-2 py-1 transition-colors relative">
+          <button onClick={() => {
+              const nextState = !showNotifications;
+              setShowNotifications(nextState);
+              if (nextState) {
+                markNotificationsAsRead();
+              }
+            }} className="text-xs font-bold uppercase hover:bg-black hover:text-white border border-black px-2 py-1 transition-colors relative">
             NOTIFICATIONS
-            {notifications.length > 0 && <span className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">{notifications.length}</span>}
+            {notifications.filter(n => !n.read).length > 0 && <span className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">{notifications.filter(n => !n.read).length}</span>}
           </button>
 
           <input
@@ -289,11 +318,11 @@ export default function Feed() {
            <div className="absolute top-full right-0 mt-2 w-72 bg-white border-2 border-black p-4 z-50 max-h-64 overflow-y-auto">
              <h3 className="font-bold border-b border-black pb-2 mb-2 uppercase tracking-tighter">Notifications</h3>
              {notifications.length === 0 ? (
-               <p className="font-mono text-xs text-gray-500 uppercase">NO NEW NOTIFICATIONS.</p>
+               <p className="font-mono text-xs text-gray-500 uppercase">NO NOTIFICATIONS.</p>
              ) : (
                <ul className="space-y-4">
                  {notifications.map(n => (
-                   <li key={n.id as string} className="font-mono text-xs border-l-2 border-black pl-2">
+                   <li key={n.id as string} className={`font-mono text-xs border-l-2 ${n.read ? 'border-gray-400 text-gray-600' : 'border-black'} pl-2`}>
                      <span className="font-bold text-red-600 mr-2">[{n.type as string}]</span>
                      {n.content as string}
                    </li>

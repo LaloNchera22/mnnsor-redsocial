@@ -2,10 +2,7 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
-const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, {
-  // @ts-expect-error type override for Stripe
-  apiVersion: '2023-10-16',
-}) : null;
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
 
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -21,7 +18,8 @@ import { checkRateLimit } from '@/lib/rateLimit';
 
 export async function POST(req: Request) {
   const ip = req.headers.get('x-forwarded-for') || 'unknown';
-  if (!checkRateLimit(`webhook_${ip}`, 10, 60000)) {
+  const isUnderLimit = await checkRateLimit(`webhook_${ip}`, 10, 60000);
+  if (!isUnderLimit) {
     return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
   }
 
@@ -47,22 +45,21 @@ export async function POST(req: Request) {
   switch (event.type) {
     case 'checkout.session.completed': {
       const eventId = event.id;
-      // Use Redis or DB in production for actual idempotency
-      // Here, check if the event was already processed to avoid duplicated calls (using a simple global cache for simplicity/mock if supabase isn't used, but properly we would check the DB).
-      // Let's add a basic check:
+      // Use Supabase for actual idempotency
       if (supabaseAdmin) {
-         // Create a webhook_events table in reality, here we can just update safely or check an event log.
-         // Since we don't have a table for webhook idempotency, we will just continue to update the profile which is safely idempotent.
-         // However to strictly follow "webhook idempotency check" requirement, let's pretend we track it.
-         // A simple in-memory check for duplicate events (not persistent across instances but better than nothing):
+        const { data: existingEvent } = await supabaseAdmin.from('webhook_events').select('id').eq('id', eventId).single();
+        if (existingEvent) {
+          return NextResponse.json({ received: true, note: 'Already processed' });
+        }
+        await supabaseAdmin.from('webhook_events').insert([{ id: eventId }]);
+      } else {
+        const processedEvents = global as unknown as { __webhook_cache?: Set<string> };
+        if (!processedEvents.__webhook_cache) processedEvents.__webhook_cache = new Set();
+        if (processedEvents.__webhook_cache.has(eventId)) {
+           return NextResponse.json({ received: true, note: 'Already processed' });
+        }
+        processedEvents.__webhook_cache!.add(eventId);
       }
-
-      const processedEvents = global as unknown as { __webhook_cache?: Set<string> };
-      if (!processedEvents.__webhook_cache) processedEvents.__webhook_cache = new Set();
-      if (processedEvents.__webhook_cache.has(eventId)) {
-         return NextResponse.json({ received: true, note: 'Already processed' });
-      }
-      processedEvents.__webhook_cache!.add(eventId);
 
       const session = event.data.object as Stripe.Checkout.Session;
       const userId = session.client_reference_id;
@@ -74,9 +71,10 @@ export async function POST(req: Request) {
         const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id;
 
         if (type === 'setup') {
-          await supabaseAdmin.from('profiles').update({ has_paid_setup: true, stripe_customer_id: customerId }).eq('anon_id', userId);
+          // Use id instead of anon_id to avoid mismatch issues from client
+          await supabaseAdmin.from('profiles').update({ has_paid_setup: true, stripe_customer_id: customerId }).eq('id', userId);
         } else if (type === 'subscription') {
-           await supabaseAdmin.from('profiles').update({ is_subscribed: true, stripe_customer_id: customerId }).eq('anon_id', userId);
+           await supabaseAdmin.from('profiles').update({ is_subscribed: true, stripe_customer_id: customerId }).eq('id', userId);
         }
       } else {
         console.error("Supabase Admin is not available or userId is missing");

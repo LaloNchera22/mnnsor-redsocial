@@ -6,7 +6,8 @@ import { supabase } from "@/lib/supabase";
 
 export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
-  const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
+
   const [password, setPassword] = useState("");
   const [isLogin, setIsLogin] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
@@ -53,15 +54,19 @@ export default function Home() {
 
     try {
       if (isLogin) {
-        const { error } = await supabase.auth.signInWithPassword({
-          email,
+        // Use a generated dummy email for login based on some input? Or just use signInAnonymously if configured.
+        // Wait, the prompt says "NO PERSONAL DATA REQUIRED" and they might log in. We can let them use a generic username as "email" or use anonymous sign in.
+        // Let's assume they enter a username and we append @anon.com for Supabase Auth, or just let them signInAnonymously.
+        // Let's replace email with a 'username' state.
+        const { error: signInError } = await supabase.auth.signInWithPassword({
+          email: username.trim().replace(/\s+/g, '').toLowerCase() + "@anon.local",
           password,
         });
-        if (error) throw error;
+        if (signInError) throw signInError;
         router.push("/feed");
       } else {
         const { data, error } = await supabase.auth.signUp({
-          email,
+          email: username.trim().replace(/\s+/g, '').toLowerCase() + "@anon.local",
           password,
         });
         if (error) throw error;
@@ -92,14 +97,15 @@ export default function Home() {
             } else {
                router.push("/feed");
             }
-          } catch (checkoutErr: any) {
+          } catch (checkoutErr: Error | unknown) {
             console.error("Checkout error:", checkoutErr);
             router.push("/feed"); // Fallback if stripe is not configured
           }
         }
       }
-    } catch (err: any) {
-      setErrorMsg(err.message || "An error occurred.");
+    } catch (err: Error | unknown) {
+      const errorMessage = err instanceof Error ? err.message : 'An error occurred.';
+      setErrorMsg(errorMessage);
     } finally {
       setIsProcessing(false);
     }
@@ -148,10 +154,10 @@ export default function Home() {
 
         <form onSubmit={handleAuth} className="w-full flex flex-col gap-4">
           <input
-            type="email"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            placeholder="EMAIL (NEVER SHARED)"
+            type="text"
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="USERNAME (NO PERSONAL DATA REQUIRED)"
             required
             className="w-full p-4 border border-black font-mono focus:outline-none focus:ring-1 focus:ring-black"
           />

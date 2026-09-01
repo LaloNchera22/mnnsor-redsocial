@@ -1,14 +1,19 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
-import { supabase } from '@/lib/supabase';
 
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_12345', {
-  apiVersion: '2026-08-26.dahlia',
+
+
+const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder_for_build', {
+  apiVersion: '2026-08-26.dahlia' // use a stable valid version type for Stripe SDK
 });
 
 export async function POST(req: Request) {
   try {
     const { userId, type } = await req.json();
+
+    if (!stripe) {
+      return NextResponse.json({ error: 'Stripe configuration missing.' }, { status: 500 });
+    }
 
     if (!userId) {
       return NextResponse.json({ error: 'User ID is required' }, { status: 400 });
@@ -43,6 +48,9 @@ export async function POST(req: Request) {
       });
       sessionUrl = session.url;
     } else if (type === 'subscription') {
+      if (!process.env.STRIPE_MONTHLY_PRICE_ID) {
+        return NextResponse.json({ error: 'Monthly price ID is not configured.' }, { status: 500 });
+      }
       // Monthly subscription ($5)
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ['card'],
@@ -65,8 +73,9 @@ export async function POST(req: Request) {
     }
 
     return NextResponse.json({ url: sessionUrl });
-  } catch (error: any) {
-    console.error('Error creating checkout session:', error);
-    return NextResponse.json({ error: error.message }, { status: 500 });
+  } catch (error: Error | unknown) {
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+    console.error('Error creating checkout session:', errorMessage);
+    return NextResponse.json({ error: errorMessage }, { status: 500 });
   }
 }

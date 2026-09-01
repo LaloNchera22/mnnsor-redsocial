@@ -218,3 +218,38 @@ DROP TRIGGER IF EXISTS on_auth_user_created ON auth.users;
 CREATE TRIGGER on_auth_user_created
   AFTER INSERT ON auth.users
   FOR EACH ROW EXECUTE PROCEDURE public.handle_new_user();
+
+-- Added Policies and Tables
+
+-- Delete policy for posts
+CREATE POLICY "Admins can delete any post." ON public.posts FOR DELETE USING (public.is_admin());
+
+-- Comments update and delete
+CREATE POLICY "Users can update own comments." ON public.comments FOR UPDATE USING (public.anon_id() = author_id);
+CREATE POLICY "Users can delete own comments." ON public.comments FOR DELETE USING (public.anon_id() = author_id);
+CREATE POLICY "Admins can delete any comment." ON public.comments FOR DELETE USING (public.is_admin());
+
+-- Messages update and delete
+CREATE POLICY "Users can update own messages." ON public.messages FOR UPDATE USING (public.anon_id() = sender_id);
+CREATE POLICY "Users can delete messages." ON public.messages FOR DELETE USING (public.anon_id() = sender_id OR public.anon_id() = receiver_id);
+
+-- Post Flags
+CREATE TABLE IF NOT EXISTS public.post_flags (
+  user_id text references public.profiles(anon_id) on delete cascade,
+  post_id uuid references public.posts(id) on delete cascade,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null,
+  primary key (user_id, post_id)
+);
+ALTER TABLE public.post_flags ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Users can insert their own flags." ON public.post_flags FOR INSERT WITH CHECK (public.anon_id() = user_id);
+CREATE POLICY "Users can view their own flags." ON public.post_flags FOR SELECT USING (public.anon_id() = user_id);
+CREATE POLICY "Admins can view all flags." ON public.post_flags FOR SELECT USING (public.is_admin());
+
+-- Storage Bucket Setup (audio_uploads)
+-- Assuming storage extension is active, we insert into storage.buckets and setup policies
+INSERT INTO storage.buckets (id, name, public) VALUES ('audio_uploads', 'audio_uploads', true) ON CONFLICT DO NOTHING;
+
+CREATE POLICY "Public Access" ON storage.objects FOR SELECT USING ( bucket_id = 'audio_uploads' );
+CREATE POLICY "Auth Insert" ON storage.objects FOR INSERT WITH CHECK ( bucket_id = 'audio_uploads' AND auth.role() = 'authenticated' );
+CREATE POLICY "Auth Update" ON storage.objects FOR UPDATE USING ( bucket_id = 'audio_uploads' AND auth.role() = 'authenticated' );
+CREATE POLICY "Auth Delete" ON storage.objects FOR DELETE USING ( bucket_id = 'audio_uploads' AND auth.role() = 'authenticated' );

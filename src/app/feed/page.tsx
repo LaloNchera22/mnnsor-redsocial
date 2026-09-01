@@ -12,7 +12,16 @@ export default function Feed() {
   const [posts, setPosts] = useState<PostType[]>([]);
   const [anonId, setAnonId] = useState<string>("UNKNOWN");
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedSearch(searchQuery);
+      setPage(1);
+    }, 300);
+    return () => clearTimeout(handler);
+  }, [searchQuery]);
   const [hasMore, setHasMore] = useState(true);
   const router = useRouter();
   const { ref, inView } = useInView();
@@ -21,7 +30,7 @@ export default function Feed() {
     if (supabase) {
       const from = (pageNum - 1) * 10;
       const to = from + 9;
-      let query = supabase.from('posts').select('*').order('created_at', { ascending: false }).range(from, to);
+      let query = supabase.from('posts').select('*').lt('flags', 4).order('created_at', { ascending: false }).range(from, to);
 
       if (search) {
         query = query.textSearch('search_vector', search);
@@ -39,7 +48,7 @@ export default function Feed() {
           authorId: p.author_id,
           title: p.title,
           content: p.content,
-          type: p.type as any,
+          type: p.type as 'document' | 'audio',
           tag: p.tag,
           flags: p.flags,
           createdAt: p.created_at
@@ -52,10 +61,11 @@ export default function Feed() {
       const stored = localStorage.getItem("mockPosts");
       let allPosts = stored ? JSON.parse(stored) : initialPosts;
       if (search) {
-        allPosts = allPosts.filter((p: PostType) =>
-          p.title.includes(search.toUpperCase()) || p.content.toUpperCase().includes(search.toUpperCase())
-        );
+        allPosts = allPosts.filter((p: PostType) => (
+          p.title.includes(search.toUpperCase()) || p.content.toUpperCase().includes(search.toUpperCase()) || p.tag.toUpperCase().includes(search.toUpperCase())
+        ));
       }
+      allPosts = allPosts.filter((p: PostType) => p.flags < 4);
       setPosts(allPosts); // No real pagination for mock
       setHasMore(false);
     }
@@ -85,11 +95,11 @@ export default function Feed() {
         }
       }
       setAnonId(currentAnonId);
-      fetchPosts(1, searchQuery, true);
+      fetchPosts(1, debouncedSearch, true);
     };
 
     checkAuth();
-  }, [router, fetchPosts, searchQuery]); // Re-fetch on search change
+  }, [router, fetchPosts, debouncedSearch]); // Re-fetch on search change
 
   // Real-time subscription
   useEffect(() => {
@@ -103,7 +113,7 @@ export default function Feed() {
            authorId: payload.new.author_id,
            title: payload.new.title,
            content: payload.new.content,
-           type: payload.new.type as any,
+           type: payload.new.type as 'document' | 'audio',
            tag: payload.new.tag,
            flags: payload.new.flags,
            createdAt: payload.new.created_at
@@ -122,11 +132,14 @@ export default function Feed() {
   // Infinite scroll trigger
   useEffect(() => {
     if (inView && hasMore) {
-       const nextPage = page + 1;
-       setPage(nextPage);
-       fetchPosts(nextPage, searchQuery, false);
+       const timer = setTimeout(() => {
+         const nextPage = page + 1;
+         setPage(nextPage);
+         fetchPosts(nextPage, debouncedSearch, false);
+       }, 0);
+       return () => clearTimeout(timer);
     }
-  }, [inView, hasMore, page, fetchPosts, searchQuery]);
+  }, [inView, hasMore, page, fetchPosts, debouncedSearch]);
 
 
   const handleCreatePost = async (title: string, content: string, type: 'document'|'audio', tag: string) => {
@@ -158,14 +171,31 @@ export default function Feed() {
     }
   };
 
+
   const handleFlag = async (id: string) => {
+    // Check locally if already flagged
+    const localFlags = JSON.parse(localStorage.getItem("flagged_posts") || "[]");
+    if (localFlags.includes(id)) {
+      alert("YOU HAVE ALREADY FLAGGED THIS CONTENT.");
+      return;
+    }
+
     if (supabase) {
-       // Ideally a stored procedure or an edge function handles this to increment atomically
-       // For now, doing a simple update which is subject to race conditions
+       // Insert into post_flags to prevent duplicates, rely on RLS/unique constraint
+       const { error } = await supabase.from('post_flags').insert([{ post_id: id, user_id: anonId }]);
+       if (error) {
+         if (error.code === '23505') { // Unique constraint violation
+            alert("YOU HAVE ALREADY FLAGGED THIS CONTENT.");
+         }
+         return;
+       }
        const post = posts.find(p => p.id === id);
        if (post) {
          await supabase.from('posts').update({ flags: post.flags + 1 }).eq('id', id);
          setPosts(posts.map(p => p.id === id ? { ...p, flags: p.flags + 1 } : p));
+
+         // Visual confirmation for reporter
+         alert("CONTENT FLAGGED FOR MODERATION.");
        }
     } else {
       const updated = posts.map(p => {
@@ -176,7 +206,12 @@ export default function Feed() {
       localStorage.setItem("mockPosts", JSON.stringify(updated));
       alert("CONTENT FLAGGED FOR MODERATION.");
     }
+
+    // Save to local flags array
+    localFlags.push(id);
+    localStorage.setItem("flagged_posts", JSON.stringify(localFlags));
   };
+
 
   const handleLogout = async () => {
     if (supabase) {
@@ -201,7 +236,6 @@ export default function Feed() {
             value={searchQuery}
             onChange={(e) => {
                setSearchQuery(e.target.value);
-               setPage(1); // Reset page on search
             }}
             className="border border-black px-2 py-1 font-mono text-sm uppercase focus:outline-none focus:ring-1 focus:ring-black"
           />

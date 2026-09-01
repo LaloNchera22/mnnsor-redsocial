@@ -324,9 +324,9 @@ export default function Post({ post, onFlag }: PostProps) {
            ) : (
               <ul className="space-y-3 mb-4">
                  {comments.map(c => (
-                    <li key={c.id} className="font-mono text-xs border-l-2 border-black pl-2">
-                       <span className="font-bold mr-2">{c.author_id}:</span>
-                       {c.content}
+                    <li key={c.id as string} className="font-mono text-xs border-l-2 border-black pl-2">
+                       <span className="font-bold mr-2">{c.author_id as string}:</span>
+                       {c.content as string}
                     </li>
                  ))}
               </ul>

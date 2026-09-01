@@ -293,9 +293,9 @@ export default function Feed() {
              ) : (
                <ul className="space-y-4">
                  {notifications.map(n => (
-                   <li key={n.id} className="font-mono text-xs border-l-2 border-black pl-2">
-                     <span className="font-bold text-red-600 mr-2">[{n.type}]</span>
-                     {n.content}
+                   <li key={n.id as string} className="font-mono text-xs border-l-2 border-black pl-2">
+                     <span className="font-bold text-red-600 mr-2">[{n.type as string}]</span>
+                     {n.content as string}
                    </li>
                  ))}
                </ul>

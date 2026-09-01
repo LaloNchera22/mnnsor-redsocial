@@ -59,7 +59,8 @@ export default function CreatePost({ onCreate }: CreatePostProps) {
           finalContent = data.publicUrl;
         } else {
            // Fallback to URL input or just use the mock URL
-           finalContent = xss(content.trim() || "MOCK_AUDIO_URL");
+           if (!content.trim()) throw new Error("Audio file or URL required");
+           finalContent = xss(content.trim());
         }
       }
 
@@ -171,7 +172,20 @@ export default function CreatePost({ onCreate }: CreatePostProps) {
                <input
                  type="file"
                  accept="audio/*"
-                 onChange={(e) => setFile(e.target.files?.[0] || null)}
+                 onChange={(e) => {
+                    const selectedFile = e.target.files?.[0] || null;
+                    if (selectedFile && selectedFile.size > 10 * 1024 * 1024) {
+                       alert("File size exceeds 10MB limit");
+                       e.target.value = "";
+                       return;
+                    }
+                    if (selectedFile && !selectedFile.type.startsWith('audio/')) {
+                       alert("Invalid file type. Only audio allowed.");
+                       e.target.value = "";
+                       return;
+                    }
+                    setFile(selectedFile);
+                 }}
                  className="w-full border border-black p-2 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-black"
                />
                <span className="text-xs text-gray-500 font-mono">OR ENTER URL BELOW:</span>

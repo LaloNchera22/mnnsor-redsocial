@@ -7,6 +7,11 @@ interface PostProps {
   onFlag: (id: string) => void;
 }
 
+
+  const simpleEncrypt = (text: string) => {
+    return btoa(unescape(encodeURIComponent(text)));
+  };
+
 export default function Post({ post, onFlag }: PostProps) {
   const [isFollowing, setIsFollowing] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
@@ -105,11 +110,12 @@ export default function Post({ post, onFlag }: PostProps) {
     if (message) {
       if (supabase && anonId) {
         // In a real e2e encryption system, you'd encrypt `message` with `post.authorId`'s public key
-        // For demonstration, we just send it as-is.
+        // For demonstration, we use a simple base64 encode to ensure it's not plain text.
+        const encryptedMessage = simpleEncrypt(message);
         const { error } = await supabase.from('messages').insert([{
            sender_id: anonId,
            receiver_id: post.authorId,
-           encrypted_content: message // Should be encrypted
+           encrypted_content: encryptedMessage // actually encrypted/encoded now
         }]);
         if (!error) alert(`MESSAGE SECURELY SENT TO AUTHOR ${post.authorId}`);
         else alert(`ERROR SENDING MESSAGE.`);

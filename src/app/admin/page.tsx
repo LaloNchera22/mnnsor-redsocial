@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Post as PostType } from "@/lib/mockData";
@@ -10,6 +10,26 @@ export default function AdminDashboard() {
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
+
+  const fetchFlaggedContent = useCallback(async () => {
+    if (supabase) {
+      const { data, error } = await supabase.from('posts').select('*').gt('flags', 0).order('flags', { ascending: false });
+      if (data) {
+        setFlaggedPosts(data.map(p => ({
+          id: p.id,
+          authorId: p.author_id,
+          title: p.title,
+          content: p.content,
+          type: p.type as 'document' | 'audio',
+          tag: p.tag,
+          flags: p.flags,
+          createdAt: p.created_at
+        })));
+      } else if (error) {
+        console.error("Error fetching flagged posts:", error);
+      }
+    }
+  }, []);
 
   useEffect(() => {
     const checkAdmin = async () => {
@@ -30,12 +50,16 @@ export default function AdminDashboard() {
         fetchFlaggedContent();
       } else {
         // Mock fallback logic
-        const user = localStorage.getItem("anonUser");
-        if (!user) {
+        const userStr = localStorage.getItem("anonUser");
+        if (!userStr) {
            router.push("/");
            return;
         }
-        // In mock, allow access but show warning
+        const user = JSON.parse(userStr);
+        if (user.role !== 'admin') {
+           router.push("/feed");
+           return;
+        }
         setIsAdmin(true);
         const stored = localStorage.getItem("mockPosts");
         if (stored) {
@@ -46,27 +70,7 @@ export default function AdminDashboard() {
       setLoading(false);
     };
     checkAdmin();
-  }, [router]);
-
-  const fetchFlaggedContent = async () => {
-    if (supabase) {
-      const { data, error } = await supabase.from('posts').select('*').gt('flags', 0).order('flags', { ascending: false });
-      if (data) {
-        setFlaggedPosts(data.map(p => ({
-          id: p.id,
-          authorId: p.author_id,
-          title: p.title,
-          content: p.content,
-          type: p.type as any,
-          tag: p.tag,
-          flags: p.flags,
-          createdAt: p.created_at
-        })));
-      } else if (error) {
-        console.error("Error fetching flagged posts:", error);
-      }
-    }
-  };
+  }, [router, fetchFlaggedContent]);
 
   const handleAction = async (postId: string, action: 'keep' | 'remove') => {
     if (supabase) {

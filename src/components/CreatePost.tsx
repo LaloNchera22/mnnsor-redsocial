@@ -4,24 +4,26 @@ import { useState } from "react";
 import { PostType } from "@/lib/mockData";
 
 interface CreatePostProps {
-  onCreate: (title: string, content: string, type: PostType) => void;
+  onCreate: (title: string, content: string, type: PostType, tag: string) => void;
 }
 
 export default function CreatePost({ onCreate }: CreatePostProps) {
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [type, setType] = useState<PostType>("document");
+  const [tag, setTag] = useState("");
   const [isExpanded, setIsExpanded] = useState(false);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!title.trim() || !content.trim()) return;
+    if (!title.trim() || !content.trim() || !tag.trim()) return;
 
-    onCreate(title.trim(), content.trim(), type);
+    onCreate(title.trim(), content.trim(), type, tag.trim());
 
     // Reset
     setTitle("");
     setContent("");
+    setTag("");
     setIsExpanded(false);
   };
 
@@ -84,6 +86,18 @@ export default function CreatePost({ onCreate }: CreatePostProps) {
             onChange={(e) => setTitle(e.target.value)}
             className="w-full border border-black p-2 font-mono text-sm uppercase focus:outline-none focus:ring-1 focus:ring-black"
             placeholder="ENTER TITLE..."
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-xs font-bold uppercase mb-2">CATEGORY / TAG</label>
+          <input
+            type="text"
+            value={tag}
+            onChange={(e) => setTag(e.target.value)}
+            className="w-full border border-black p-2 font-mono text-sm uppercase focus:outline-none focus:ring-1 focus:ring-black"
+            placeholder="ENTER CATEGORY OR TAG..."
             required
           />
         </div>

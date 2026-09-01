@@ -62,6 +62,19 @@ export default function Home() {
           FREE REPORTING.<br/>
           NO PAYWALLS FOR SCIENTIFIC RESEARCH PUBLICATION OR READING.
         </p>
+
+        <div className="border-t border-black pt-8 mt-8">
+          <h2 className="text-lg font-bold mb-4 tracking-tighter uppercase">The Manifesto of Free Knowledge</h2>
+          <p className="mb-4 leading-relaxed">
+            &quot;INFORMATION WANTS TO BE FREE.&quot; WE BELIEVE IN THE UNHINDERED FLOW OF IDEAS AS THE ULTIMATE CATALYST FOR HUMAN EVOLUTION. KNOWLEDGE MUST TRANSIT WITHOUT BORDERS, WITHOUT CENSORSHIP, AND WITHOUT CORPORATE CHAINS.
+          </p>
+          <div className="border border-black p-4 mt-6 bg-black text-white">
+            <h3 className="text-md font-bold mb-2 tracking-widest uppercase">$100,000 USD REWARD</h3>
+            <p className="text-sm">
+              AWARDED TO THE AUTHOR OF THE BEST ARTICLE OF 2026 THAT HELPS THE MOST PEOPLE GLOBALLY. TRUTH IS ITS OWN REWARD, BUT WE REWARD IT FURTHER.
+            </p>
+          </div>
+        </div>
       </div>
 
       <div className="mt-12 w-full flex flex-col items-center">

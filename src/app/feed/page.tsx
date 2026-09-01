@@ -11,6 +11,7 @@ export default function Feed() {
   const router = useRouter();
   const [posts, setPosts] = useState<PostType[]>([]);
   const [user, setUser] = useState<{ id: string } | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
 
   useEffect(() => {
     // Check for anonymous user
@@ -46,7 +47,7 @@ export default function Feed() {
     fetchPosts();
   }, [router]);
 
-  const handleCreatePost = async (title: string, content: string, type: 'document' | 'audio') => {
+  const handleCreatePost = async (title: string, content: string, type: 'document' | 'audio', tag: string) => {
     if (!user) return;
 
     // Create a new post object
@@ -56,6 +57,7 @@ export default function Feed() {
       title,
       content: type === 'audio' ? `[AUDIO FILE: ${content}]` : content,
       type,
+      tag,
       flags: 0,
       createdAt: new Date().toISOString()
     };
@@ -72,6 +74,7 @@ export default function Feed() {
         title: newPost.title,
         content: newPost.content,
         type: newPost.type,
+        tag: newPost.tag,
         flags: newPost.flags,
         created_at: newPost.createdAt
       }]);
@@ -112,12 +115,31 @@ export default function Feed() {
   if (!user) return null;
 
   // Algorithm: hide posts with > 3 flags
-  const visiblePosts = posts.filter(post => post.flags <= 3);
+  const visiblePosts = posts.filter(post => {
+    if (post.flags > 3) return false;
+    if (searchQuery.trim() === "") return true;
+
+    const lowerQuery = searchQuery.toLowerCase();
+    return (
+      post.title.toLowerCase().includes(lowerQuery) ||
+      post.content.toLowerCase().includes(lowerQuery) ||
+      post.tag.toLowerCase().includes(lowerQuery)
+    );
+  });
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-8 min-h-screen">
       <header className="mb-12 border-b-2 border-black pb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-        <h1 className="text-3xl font-bold tracking-tighter uppercase">Global Feed</h1>
+        <div className="flex flex-col gap-2 w-full md:w-auto">
+          <h1 className="text-3xl font-bold tracking-tighter uppercase">Global Feed</h1>
+          <input
+            type="text"
+            placeholder="SEARCH NETWORK..."
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            className="w-full md:w-64 border border-black p-2 font-mono text-sm uppercase focus:outline-none focus:ring-1 focus:ring-black"
+          />
+        </div>
         <div className="flex flex-col md:flex-row items-start md:items-end gap-4">
           <div className="text-left md:text-right">
             <div className="text-sm font-bold uppercase">LOGGED IN AS:</div>

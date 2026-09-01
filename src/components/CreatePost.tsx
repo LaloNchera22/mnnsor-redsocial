@@ -59,8 +59,12 @@ export default function CreatePost({ onCreate }: CreatePostProps) {
           finalContent = data.publicUrl;
         } else {
            // Fallback to URL input or just use the mock URL
-           if (!content.trim()) throw new Error("Audio file or URL required");
-           finalContent = xss(content.trim());
+           if (!content.trim() && !file) {
+              finalContent = "MOCK_AUDIO_URL";
+           } else {
+              if (!content.trim()) throw new Error("Audio file or URL required");
+              finalContent = xss(content.trim());
+           }
         }
       }
 

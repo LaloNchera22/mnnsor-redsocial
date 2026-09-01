@@ -4,6 +4,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   anon_id text unique not null,
   has_paid_setup boolean default false,
   is_subscribed boolean default false,
+  stripe_customer_id text,
   role text default 'user' check (role in ('user', 'admin')),
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
@@ -253,3 +254,4 @@ CREATE POLICY "Public Access" ON storage.objects FOR SELECT USING ( bucket_id = 
 CREATE POLICY "Auth Insert" ON storage.objects FOR INSERT WITH CHECK ( bucket_id = 'audio_uploads' AND auth.role() = 'authenticated' );
 CREATE POLICY "Auth Update" ON storage.objects FOR UPDATE USING ( bucket_id = 'audio_uploads' AND auth.role() = 'authenticated' );
 CREATE POLICY "Auth Delete" ON storage.objects FOR DELETE USING ( bucket_id = 'audio_uploads' AND auth.role() = 'authenticated' );
+CREATE POLICY "Audio type/size constraints" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'audio_uploads' AND (LOWER(storage.extension(name)) = 'mp3' OR LOWER(storage.extension(name)) = 'wav' OR LOWER(storage.extension(name)) = 'ogg') AND coalesce(storage.size(name), 0) < 10485760);

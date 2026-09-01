@@ -7,6 +7,7 @@ import { Post as PostType } from "@/lib/mockData";
 
 export default function AdminDashboard() {
   const [flaggedPosts, setFlaggedPosts] = useState<PostType[]>([]);
+  const [auditLogs, setAuditLogs] = useState<Array<Record<string, unknown>>>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const router = useRouter();
@@ -48,6 +49,8 @@ export default function AdminDashboard() {
 
         setIsAdmin(true);
         fetchFlaggedContent();
+        const { data: logs } = await supabase.from('audit_logs').select('*').order('created_at', { ascending: false }).limit(20);
+        if (logs) setAuditLogs(logs);
       } else {
         // Mock fallback logic
         const userStr = localStorage.getItem("anonUser");
@@ -155,6 +158,25 @@ export default function AdminDashboard() {
               </div>
             ))}
           </div>
+        )}
+      </section>
+
+      <section className="mt-16 pt-8 border-t-4 border-black">
+        <h2 className="text-xl font-bold mb-6 uppercase tracking-tight">Audit Logs</h2>
+        {auditLogs.length === 0 ? (
+          <p className="font-mono text-sm uppercase text-gray-500">No logs available.</p>
+        ) : (
+          <ul className="space-y-2 border border-black p-4 bg-gray-50">
+             {auditLogs.map(log => (
+               <li key={log.id as string} className="font-mono text-xs uppercase border-b border-gray-300 pb-2">
+                 <span className="font-bold text-black">{new Date(log.created_at as string).toLocaleString()}</span> — Admin {log.admin_id as string}
+                 <span className={log.action === 'removed_post' ? 'text-red-600 font-bold mx-2' : 'text-blue-600 font-bold mx-2'}>
+                   {log.action as string}
+                 </span>
+                 TARGET: {log.target_id as string}
+               </li>
+             ))}
+          </ul>
         )}
       </section>
     </main>

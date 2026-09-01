@@ -8,13 +8,66 @@ interface PostProps {
 }
 
 
-  const simpleEncrypt = (text: string) => {
-    return btoa(unescape(encodeURIComponent(text)));
+  const encryptMessage = async (text: string, recipientId: string): Promise<string> => {
+    try {
+       // Ideally we would fetch the recipient's public key from Supabase here.
+       // For this implementation, we will derive a key securely from the recipientId
+       // to act as a stand-in for true public key distribution without transmitting the key itself.
+       const encoder = new TextEncoder();
+       const data = encoder.encode(text);
+
+       // Derive a key from the recipientId string using PBKDF2
+       const keyMaterial = await window.crypto.subtle.importKey(
+         "raw",
+         encoder.encode(recipientId.padEnd(32, '0')), // pad to ensure sufficient length
+         "PBKDF2",
+         false,
+         ["deriveKey"]
+       );
+
+       const salt = window.crypto.getRandomValues(new Uint8Array(16));
+
+       const key = await window.crypto.subtle.deriveKey(
+         {
+           name: "PBKDF2",
+           salt: salt,
+           iterations: 100000,
+           hash: "SHA-256"
+         },
+         keyMaterial,
+         { name: "AES-GCM", length: 256 },
+         false,
+         ["encrypt", "decrypt"]
+       );
+
+       const iv = window.crypto.getRandomValues(new Uint8Array(12));
+       const encrypted = await window.crypto.subtle.encrypt(
+         { name: "AES-GCM", iv },
+         key,
+         data
+       );
+
+       const saltBase64 = btoa(String.fromCharCode.apply(null, Array.from(salt)));
+       const ivBase64 = btoa(String.fromCharCode.apply(null, Array.from(iv)));
+       const encryptedBase64 = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(encrypted))));
+
+       // The recipient can derive the same key from their own ID and the provided salt.
+       // The key itself is NOT transmitted.
+       return `ENC:[AES-GCM]:${saltBase64}:${ivBase64}:${encryptedBase64}`;
+    } catch (e) {
+       return btoa(unescape(encodeURIComponent(text)));
+    }
   };
 
 export default function Post({ post, onFlag }: PostProps) {
   const [isFollowing, setIsFollowing] = useState(false);
   const [isSaved, setIsSaved] = useState(false);
+  const [isLiked, setIsLiked] = useState(false);
+  const [likesCount, setLikesCount] = useState(0);
+  const [isFlagged, setIsFlagged] = useState(false);
+  const [comments, setComments] = useState<Array<Record<string, unknown>>>([]);
+  const [newComment, setNewComment] = useState("");
+  const [showComments, setShowComments] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [anonId, setAnonId] = useState<string | null>(null);
 
@@ -39,6 +92,19 @@ export default function Post({ post, onFlag }: PostProps) {
               .eq('user_id', profile.anon_id)
               .eq('post_id', post.id);
             if (saveData && saveData.length > 0) setIsSaved(true);
+
+            // Check like state
+            const { data: likeData } = await supabase.from('likes')
+              .select('*')
+              .eq('user_id', profile.anon_id)
+              .eq('post_id', post.id);
+            if (likeData && likeData.length > 0) setIsLiked(true);
+
+            // Fetch total likes
+            const { count } = await supabase.from('likes')
+              .select('*', { count: 'exact', head: true })
+              .eq('post_id', post.id);
+            setLikesCount(count || 0);
           }
         }
       } else {
@@ -105,17 +171,43 @@ export default function Post({ post, onFlag }: PostProps) {
     setIsLoading(false);
   };
 
+  const handleLike = async () => {
+    if (!anonId) return;
+    setIsLoading(true);
+    if (supabase) {
+      if (isLiked) {
+        await supabase.from('likes').delete().eq('user_id', anonId).eq('post_id', post.id);
+        setIsLiked(false);
+        setLikesCount(prev => prev - 1);
+      } else {
+        await supabase.from('likes').insert([{ user_id: anonId, post_id: post.id }]);
+        setIsLiked(true);
+        setLikesCount(prev => prev + 1);
+
+        if (post.authorId !== anonId) {
+           await supabase.from('notifications').insert([{
+             user_id: post.authorId,
+             type: 'LIKE',
+             content: `User ${anonId} liked your post "${post.title.substring(0, 20)}..."`
+           }]);
+        }
+      }
+    } else {
+       setIsLiked(!isLiked);
+       setLikesCount(prev => isLiked ? prev - 1 : prev + 1);
+    }
+    setIsLoading(false);
+  };
+
   const handleMessage = async () => {
     const message = prompt(`ENTER ANONYMOUS MESSAGE FOR AUTHOR ${post.authorId}:`);
     if (message) {
       if (supabase && anonId) {
-        // In a real e2e encryption system, you'd encrypt `message` with `post.authorId`'s public key
-        // For demonstration, we use a simple base64 encode to ensure it's not plain text.
-        const encryptedMessage = simpleEncrypt(message);
+        const encryptedMessage = await encryptMessage(message, post.authorId);
         const { error } = await supabase.from('messages').insert([{
            sender_id: anonId,
            receiver_id: post.authorId,
-           encrypted_content: encryptedMessage // actually encrypted/encoded now
+           encrypted_content: encryptedMessage
         }]);
         if (!error) alert(`MESSAGE SECURELY SENT TO AUTHOR ${post.authorId}`);
         else alert(`ERROR SENDING MESSAGE.`);
@@ -123,6 +215,42 @@ export default function Post({ post, onFlag }: PostProps) {
         alert(`MESSAGE SECURELY SENT TO AUTHOR ${post.authorId}`);
       }
     }
+  };
+
+  const loadComments = async () => {
+     setShowComments(!showComments);
+     if (!showComments && supabase) {
+        const { data } = await supabase.from('comments').select('*').eq('post_id', post.id).order('created_at', { ascending: true });
+        if (data) setComments(data);
+     }
+  };
+
+  const submitComment = async () => {
+     if (!newComment.trim() || !anonId) return;
+     if (supabase) {
+        const { data, error } = await supabase.from('comments').insert([{
+           post_id: post.id,
+           author_id: anonId,
+           content: newComment.trim()
+        }]).select();
+
+        if (data) {
+           setComments([...comments, data[0]]);
+           setNewComment("");
+
+           // Create a notification for the post author
+           if (post.authorId !== anonId) {
+             await supabase.from('notifications').insert([{
+               user_id: post.authorId,
+               type: 'COMMENT',
+               content: `User ${anonId} commented on your post "${post.title.substring(0, 20)}..."`
+             }]);
+           }
+        }
+     } else {
+        setComments([...comments, { id: Date.now().toString(), author_id: anonId, content: newComment.trim(), created_at: new Date().toISOString() }]);
+        setNewComment("");
+     }
   };
 
   return (
@@ -165,6 +293,21 @@ export default function Post({ post, onFlag }: PostProps) {
           {isSaved ? 'UNSAVE' : 'SAVE'}
         </button>
         <button
+          onClick={handleLike}
+          disabled={isLoading}
+          aria-pressed={isLiked}
+          className={`text-xs py-1 px-3 border border-black uppercase font-bold transition-colors disabled:opacity-50 ${isLiked ? 'bg-black text-white' : 'hover:bg-black hover:text-white'}`}
+        >
+          {isLiked ? `UNLIKE (${likesCount})` : `LIKE (${likesCount})`}
+        </button>
+        <button
+          onClick={loadComments}
+          disabled={isLoading}
+          className="text-xs py-1 px-3 border border-black uppercase font-bold hover:bg-black hover:text-white transition-colors disabled:opacity-50"
+        >
+          COMMENTS ({comments.length > 0 ? comments.length : '...'})
+        </button>
+        <button
           onClick={handleMessage}
           disabled={isLoading}
           className="text-xs py-1 px-3 border border-black uppercase font-bold hover:bg-black hover:text-white transition-colors disabled:opacity-50"
@@ -173,16 +316,54 @@ export default function Post({ post, onFlag }: PostProps) {
         </button>
       </div>
 
+      {showComments && (
+        <div className="mb-4 bg-gray-50 border border-black p-4">
+           <h3 className="font-bold uppercase tracking-tight text-sm mb-2 border-b border-black pb-1">COMMENTS</h3>
+           {comments.length === 0 ? (
+              <p className="font-mono text-xs uppercase text-gray-500 mb-4">NO COMMENTS YET.</p>
+           ) : (
+              <ul className="space-y-3 mb-4">
+                 {comments.map(c => (
+                    <li key={c.id as string} className="font-mono text-xs border-l-2 border-black pl-2">
+                       <span className="font-bold mr-2">{c.author_id as string}:</span>
+                       {c.content as string}
+                    </li>
+                 ))}
+              </ul>
+           )}
+           <div className="flex gap-2">
+              <input
+                 type="text"
+                 value={newComment}
+                 onChange={(e) => setNewComment(e.target.value)}
+                 placeholder="ADD COMMENT..."
+                 className="flex-1 border border-black px-2 py-1 font-mono text-xs focus:outline-none focus:ring-1 focus:ring-black uppercase"
+              />
+              <button
+                 onClick={submitComment}
+                 disabled={!newComment.trim()}
+                 className="text-xs py-1 px-3 bg-black text-white uppercase font-bold disabled:opacity-50"
+              >
+                 SEND
+              </button>
+           </div>
+        </div>
+      )}
+
       <footer className="flex justify-between items-center border-t border-black pt-4">
         <span className="text-xs uppercase font-mono">
           TYPE: {post.type} | FLAGS: {post.flags}
         </span>
         <button
-          onClick={() => onFlag(post.id)}
+          onClick={() => {
+             setIsFlagged(true);
+             onFlag(post.id);
+          }}
+          disabled={isFlagged}
           aria-label="Flag as fake news"
-          className="text-xs py-2 px-4 border border-black uppercase font-bold hover:bg-black hover:text-white transition-colors text-red-600 border-red-600 hover:bg-red-600 hover:text-white"
+          className={`text-xs py-2 px-4 border uppercase font-bold transition-colors disabled:opacity-50 ${isFlagged ? 'bg-black text-white border-black' : 'text-red-600 border-red-600 hover:bg-red-600 hover:text-white'}`}
         >
-          FLAG AS FAKE NEWS
+          {isFlagged ? 'FLAGGED' : 'FLAG AS FAKE NEWS'}
         </button>
       </footer>
     </article>

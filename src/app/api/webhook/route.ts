@@ -17,7 +17,14 @@ const supabaseAdmin = process.env.NEXT_PUBLIC_SUPABASE_URL && process.env.SUPABA
   ? createClient(process.env.NEXT_PUBLIC_SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
   : null;
 
+import { checkRateLimit } from '@/lib/rateLimit';
+
 export async function POST(req: Request) {
+  const ip = req.headers.get('x-forwarded-for') || 'unknown';
+  if (!checkRateLimit(`webhook_${ip}`, 10, 60000)) {
+    return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+  }
+
   const payload = await req.text();
   const sig = req.headers.get('stripe-signature') as string;
 
@@ -64,10 +71,12 @@ export async function POST(req: Request) {
       if (userId && supabaseAdmin) {
         // Idempotency check could also be added here by checking if the session was already processed
         // For now, we trust Stripe events order, but doing a simple update is idempotent
+        const customerId = typeof session.customer === 'string' ? session.customer : session.customer?.id;
+
         if (type === 'setup') {
-          await supabaseAdmin.from('profiles').update({ has_paid_setup: true }).eq('anon_id', userId);
+          await supabaseAdmin.from('profiles').update({ has_paid_setup: true, stripe_customer_id: customerId }).eq('anon_id', userId);
         } else if (type === 'subscription') {
-           await supabaseAdmin.from('profiles').update({ is_subscribed: true }).eq('anon_id', userId);
+           await supabaseAdmin.from('profiles').update({ is_subscribed: true, stripe_customer_id: customerId }).eq('anon_id', userId);
         }
       } else {
         console.error("Supabase Admin is not available or userId is missing");
@@ -77,10 +86,13 @@ export async function POST(req: Request) {
     }
     case 'customer.subscription.deleted': {
       const subscription = event.data.object as Stripe.Subscription;
-      // In a real app, you would look up the user by customer ID
-      // and update their subscription status.
-      // Here, we just log it.
-      console.log('Subscription deleted:', subscription.id);
+      // Real app handles downgrade using stripe_customer_id
+      const customerId = typeof subscription.customer === 'string' ? subscription.customer : subscription.customer.id;
+
+      console.log('Subscription deleted for customer:', customerId);
+      if (supabaseAdmin && customerId) {
+         await supabaseAdmin.from('profiles').update({ is_subscribed: false }).eq('stripe_customer_id', customerId);
+      }
       break;
     }
     // ... handle other event types

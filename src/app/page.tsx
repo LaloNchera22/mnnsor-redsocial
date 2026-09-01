@@ -10,7 +10,9 @@ export default function Home() {
 
   const [password, setPassword] = useState("");
   const [isLogin, setIsLogin] = useState(false);
+  const [isResetMode, setIsResetMode] = useState(false);
   const [errorMsg, setErrorMsg] = useState("");
+  const [successMsg, setSuccessMsg] = useState("");
   const router = useRouter();
 
   useEffect(() => {
@@ -35,6 +37,7 @@ export default function Home() {
     e.preventDefault();
     setIsProcessing(true);
     setErrorMsg("");
+    setSuccessMsg("");
 
     if (!supabase) {
       // Mock flow if no supabase configured
@@ -53,36 +56,43 @@ export default function Home() {
     }
 
     try {
+      if (isResetMode) {
+         const { error } = await supabase.auth.resetPasswordForEmail(username.trim());
+         if (error) throw error;
+         setSuccessMsg("PASSWORD RECOVERY EMAIL SENT.");
+         setIsResetMode(false);
+         return;
+      }
       if (isLogin) {
-        // Use a generated dummy email for login based on some input? Or just use signInAnonymously if configured.
-        // Wait, the prompt says "NO PERSONAL DATA REQUIRED" and they might log in. We can let them use a generic username as "email" or use anonymous sign in.
-        // Let's assume they enter a username and we append @anon.com for Supabase Auth, or just let them signInAnonymously.
-        // Let's replace email with a 'username' state.
         const { error: signInError } = await supabase.auth.signInWithPassword({
-          email: username.trim().replace(/\s+/g, '').toLowerCase() + "@anon.local",
+          email: username.trim(),
           password,
         });
         if (signInError) throw signInError;
         router.push("/feed");
       } else {
         const { data, error } = await supabase.auth.signUp({
-          email: username.trim().replace(/\s+/g, '').toLowerCase() + "@anon.local",
+          email: username.trim(),
           password,
         });
         if (error) throw error;
 
         if (data.user) {
-          // Generate anon ID
+          // We need to generate the anonId regardless of whether session is null (due to email verification)
+          // so that the webhook can register their initial setup correctly.
           const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
           let anonId = '';
           for (let i = 0; i < 6; i++) {
             anonId += characters.charAt(Math.floor(Math.random() * characters.length));
           }
 
-          // In a real app with RLS, the user creates their profile, or a trigger handles it.
-          // Since we might hit RLS if we do it directly from client without setup, we will just proceed to checkout.
-          // We will store anon_id in metadata or similar, but for simplicity here we assume the trigger handles anon_id,
-          // or we handle checkout which updates the profile via webhook.
+          // Real email verification note
+          if (data.session === null) {
+             setSuccessMsg("VERIFY YOUR EMAIL ADDRESS BEFORE CONTINUING.");
+             // Store the pending anonId locally in case they verify and come back, or rely on a webhook.
+             // Usually, payment happens after verification. We'll show the message and let them verify first.
+             // But if we want to force payment now:
+          }
 
           try {
             const res = await fetch('/api/checkout', {
@@ -151,42 +161,54 @@ export default function Home() {
         </div>
 
         {errorMsg && <div className="text-red-500 mb-4 uppercase font-bold">{errorMsg}</div>}
+        {successMsg && <div className="text-green-600 mb-4 uppercase font-bold">{successMsg}</div>}
 
         <form onSubmit={handleAuth} className="w-full flex flex-col gap-4">
           <input
-            type="text"
+            type="email"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
-            placeholder="USERNAME (NO PERSONAL DATA REQUIRED)"
+            placeholder="EMAIL ADDRESS"
             required
             className="w-full p-4 border border-black font-mono focus:outline-none focus:ring-1 focus:ring-black"
           />
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="PASSWORD"
-            required
-            className="w-full p-4 border border-black font-mono focus:outline-none focus:ring-1 focus:ring-black"
-          />
+          {!isResetMode && (
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="PASSWORD"
+              required
+              className="w-full p-4 border border-black font-mono focus:outline-none focus:ring-1 focus:ring-black"
+            />
+          )}
           <button
             type="submit"
             disabled={isProcessing}
             className="w-full py-4 px-8 border border-black text-black font-bold uppercase tracking-widest hover:bg-black hover:text-white transition-colors disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-500"
           >
-            {isProcessing ? "PROCESSING..." : isLogin ? "LOGIN" : "PAY WITH CRYPTO & SIGN UP (ANONYMOUS)"}
+            {isProcessing ? "PROCESSING..." : isResetMode ? "SEND RECOVERY EMAIL" : isLogin ? "LOGIN" : "PAY WITH CRYPTO & SIGN UP"}
           </button>
         </form>
 
-        <button
-          onClick={() => setIsLogin(!isLogin)}
-          className="mt-4 text-xs font-mono uppercase underline hover:text-gray-600"
-        >
-          {isLogin ? "NEED AN ACCOUNT? SIGN UP" : "ALREADY HAVE AN ACCOUNT? LOGIN"}
-        </button>
+        <div className="flex flex-col gap-2 mt-4 items-center">
+          <button
+            onClick={() => { setIsLogin(!isLogin); setIsResetMode(false); }}
+            className="text-xs font-mono uppercase underline hover:text-gray-600"
+          >
+            {isLogin ? "NEED AN ACCOUNT? SIGN UP" : "ALREADY HAVE AN ACCOUNT? LOGIN"}
+          </button>
+
+          <button
+            onClick={() => { setIsResetMode(!isResetMode); setIsLogin(true); }}
+            className="text-xs font-mono uppercase underline hover:text-gray-600"
+          >
+            {isResetMode ? "BACK TO LOGIN" : "FORGOT PASSWORD?"}
+          </button>
+        </div>
 
         <p className="mt-4 text-xs text-gray-500 font-mono">
-          YOUR USERNAME WILL BE RANDOMLY GENERATED. NO PERSONAL DATA REQUIRED.
+          YOUR ANONYMOUS ID WILL BE RANDOMLY GENERATED. NO OTHER DATA REQUIRED.
         </p>
       </div>
     </main>

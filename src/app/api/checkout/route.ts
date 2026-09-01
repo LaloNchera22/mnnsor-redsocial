@@ -1,14 +1,20 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, {
+  // @ts-expect-error override
+  apiVersion: '2023-10-16' // Use standard stable version
+}) : null;
 
-
-const stripe = new Stripe(process.env.STRIPE_SECRET_KEY || 'sk_test_placeholder_for_build', {
-  apiVersion: '2026-08-26.dahlia' // use a stable valid version type for Stripe SDK
-});
+import { checkRateLimit } from '@/lib/rateLimit';
 
 export async function POST(req: Request) {
   try {
+    const ip = req.headers.get('x-forwarded-for') || 'unknown';
+    if (!checkRateLimit(`checkout_${ip}`, 10, 60000)) {
+      return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
+    }
+
     const { userId, type } = await req.json();
 
     if (!stripe) {

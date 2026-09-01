@@ -14,6 +14,8 @@ export default function Feed() {
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [notifications, setNotifications] = useState<Array<Record<string, unknown>>>([]);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -25,6 +27,17 @@ export default function Feed() {
   const [hasMore, setHasMore] = useState(true);
   const router = useRouter();
   const { ref, inView } = useInView();
+
+  const fetchNotifications = useCallback(async (userId: string) => {
+    if (supabase) {
+       const { data, error } = await supabase.from('notifications')
+          .select('*')
+          .eq('user_id', userId)
+          .order('created_at', { ascending: false })
+          .limit(10);
+       if (data) setNotifications(data);
+    }
+  }, []);
 
   const fetchPosts = useCallback(async (pageNum: number, search: string = "", reset: boolean = false) => {
     if (supabase) {
@@ -59,15 +72,19 @@ export default function Feed() {
     } else {
       // Mock data logic
       const stored = localStorage.getItem("mockPosts");
-      let allPosts = stored ? JSON.parse(stored) : initialPosts;
+      let allPosts: PostType[] = stored ? JSON.parse(stored) : initialPosts;
       if (search) {
         allPosts = allPosts.filter((p: PostType) => (
           p.title.includes(search.toUpperCase()) || p.content.toUpperCase().includes(search.toUpperCase()) || p.tag.toUpperCase().includes(search.toUpperCase())
         ));
       }
       allPosts = allPosts.filter((p: PostType) => p.flags < 4);
-      setPosts(allPosts); // No real pagination for mock
-      setHasMore(false);
+
+      const startIndex = (pageNum - 1) * 10;
+      const paginatedPosts = allPosts.slice(startIndex, startIndex + 10);
+
+      setPosts(prev => reset ? paginatedPosts : [...prev, ...paginatedPosts]);
+      setHasMore(startIndex + 10 < allPosts.length);
     }
   }, []);
 
@@ -96,10 +113,11 @@ export default function Feed() {
       }
       setAnonId(currentAnonId);
       fetchPosts(1, debouncedSearch, true);
+      fetchNotifications(currentAnonId);
     };
 
     checkAuth();
-  }, [router, fetchPosts, debouncedSearch]); // Re-fetch on search change
+  }, [router, fetchPosts, debouncedSearch, fetchNotifications]); // Re-fetch on search change
 
   // Real-time subscription
   useEffect(() => {
@@ -143,6 +161,14 @@ export default function Feed() {
 
 
   const handleCreatePost = async (title: string, content: string, type: 'document'|'audio', tag: string) => {
+    try {
+      const rlRes = await fetch('/api/rate-limit', { method: 'POST', body: JSON.stringify({ action: 'post' }) });
+      if (!rlRes.ok) {
+         alert("RATE LIMIT EXCEEDED FOR POSTS. PLEASE WAIT.");
+         return;
+      }
+    } catch(e) {}
+
     if (supabase) {
       const { error } = await supabase.from('posts').insert([{
         author_id: anonId,
@@ -173,6 +199,14 @@ export default function Feed() {
 
 
   const handleFlag = async (id: string) => {
+    try {
+      const rlRes = await fetch('/api/rate-limit', { method: 'POST', body: JSON.stringify({ action: 'flag' }) });
+      if (!rlRes.ok) {
+         alert("RATE LIMIT EXCEEDED FOR FLAGS. PLEASE WAIT.");
+         return;
+      }
+    } catch(e) {}
+
     // Check locally if already flagged
     const localFlags = JSON.parse(localStorage.getItem("flagged_posts") || "[]");
     if (localFlags.includes(id)) {
@@ -224,12 +258,19 @@ export default function Feed() {
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-8 min-h-screen">
-      <header className="flex flex-col md:flex-row justify-between items-baseline mb-12 border-b-4 border-black pb-4">
+      <header className="flex flex-col md:flex-row justify-between items-baseline mb-12 border-b-4 border-black pb-4 relative">
         <div>
           <h1 className="text-3xl font-bold tracking-tighter uppercase">Global Feed</h1>
-          <p className="font-mono text-sm uppercase mt-2">ID: {anonId}</p>
+          <p className="font-mono text-sm uppercase mt-2 flex gap-4">
+            <span onClick={() => router.push('/profile')} className="underline cursor-pointer hover:text-gray-600">PROFILE (ID: {anonId})</span>
+          </p>
         </div>
-        <div className="flex gap-4 mt-4 md:mt-0">
+        <div className="flex gap-4 mt-4 md:mt-0 items-center">
+          <button onClick={() => setShowNotifications(!showNotifications)} className="text-xs font-bold uppercase hover:bg-black hover:text-white border border-black px-2 py-1 transition-colors relative">
+            NOTIFICATIONS
+            {notifications.length > 0 && <span className="absolute -top-2 -right-2 bg-red-600 text-white rounded-full w-4 h-4 flex items-center justify-center text-[10px]">{notifications.length}</span>}
+          </button>
+
           <input
             type="text"
             placeholder="SEARCH..."
@@ -243,6 +284,24 @@ export default function Feed() {
             DISCONNECT
           </button>
         </div>
+
+        {showNotifications && (
+           <div className="absolute top-full right-0 mt-2 w-72 bg-white border-2 border-black p-4 z-50 max-h-64 overflow-y-auto">
+             <h3 className="font-bold border-b border-black pb-2 mb-2 uppercase tracking-tighter">Notifications</h3>
+             {notifications.length === 0 ? (
+               <p className="font-mono text-xs text-gray-500 uppercase">NO NEW NOTIFICATIONS.</p>
+             ) : (
+               <ul className="space-y-4">
+                 {notifications.map(n => (
+                   <li key={n.id} className="font-mono text-xs border-l-2 border-black pl-2">
+                     <span className="font-bold text-red-600 mr-2">[{n.type}]</span>
+                     {n.content}
+                   </li>
+                 ))}
+               </ul>
+             )}
+           </div>
+        )}
       </header>
 
       <section>

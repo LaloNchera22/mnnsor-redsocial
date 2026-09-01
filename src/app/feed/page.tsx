@@ -1,157 +1,212 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { initialPosts, Post as PostType } from "@/lib/mockData";
 import Post from "@/components/Post";
 import CreatePost from "@/components/CreatePost";
+import { Post as PostType, initialPosts } from "@/lib/mockData";
 import { supabase } from "@/lib/supabase";
+import { useInView } from "react-intersection-observer";
 
 export default function Feed() {
-  const router = useRouter();
   const [posts, setPosts] = useState<PostType[]>([]);
-  const [user, setUser] = useState<{ id: string } | null>(null);
+  const [anonId, setAnonId] = useState<string>("UNKNOWN");
   const [searchQuery, setSearchQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const router = useRouter();
+  const { ref, inView } = useInView();
 
-  useEffect(() => {
-    // Check for anonymous user
-    const savedUser = localStorage.getItem("anonUser");
-    if (!savedUser) {
-      router.push("/");
-      return;
-    }
-    /* eslint-disable react-hooks/set-state-in-effect */
-    setUser(JSON.parse(savedUser));
-
-    const fetchPosts = async () => {
-      if (supabase) {
-        // Fetch from actual Supabase
-        const { data, error } = await supabase.from('posts').select('*').order('created_at', { ascending: false });
-        if (data) {
-          setPosts(data as PostType[]);
-        } else if (error) {
-          console.error("Error fetching posts", error);
-        }
-      } else {
-        // Initialize posts from local storage or mock data fallback
-        const savedPosts = localStorage.getItem("platformPosts");
-        if (savedPosts) {
-          setPosts(JSON.parse(savedPosts));
-        } else {
-          setPosts(initialPosts);
-          localStorage.setItem("platformPosts", JSON.stringify(initialPosts));
-        }
-      }
-    };
-
-    fetchPosts();
-  }, [router]);
-
-  const handleCreatePost = async (title: string, content: string, type: 'document' | 'audio', tag: string) => {
-    if (!user) return;
-
-    // Create a new post object
-    const newPost: PostType = {
-      id: `p${Date.now()}`,
-      authorId: user.id,
-      title,
-      content: type === 'audio' ? `[AUDIO FILE: ${content}]` : content,
-      type,
-      tag,
-      flags: 0,
-      createdAt: new Date().toISOString()
-    };
-
-    // Update local state immediately for fast feedback
-    const updatedPosts = [newPost, ...posts];
-    setPosts(updatedPosts);
-
+  const fetchPosts = useCallback(async (pageNum: number, search: string = "", reset: boolean = false) => {
     if (supabase) {
-      // Persist to actual Supabase
-      const { error } = await supabase.from('posts').insert([{
-        id: newPost.id,
-        author_id: newPost.authorId,
-        title: newPost.title,
-        content: newPost.content,
-        type: newPost.type,
-        tag: newPost.tag,
-        flags: newPost.flags,
-        created_at: newPost.createdAt
-      }]);
+      const from = (pageNum - 1) * 10;
+      const to = from + 9;
+      let query = supabase.from('posts').select('*').order('created_at', { ascending: false }).range(from, to);
+
+      if (search) {
+        query = query.textSearch('search_vector', search);
+      }
+
+      const { data, error } = await query;
       if (error) {
-        console.error("Error creating post", error);
+        console.error("Error fetching posts:", error);
+        return;
+      }
+
+      if (data) {
+        const formattedPosts: PostType[] = data.map(p => ({
+          id: p.id,
+          authorId: p.author_id,
+          title: p.title,
+          content: p.content,
+          type: p.type as any,
+          tag: p.tag,
+          flags: p.flags,
+          createdAt: p.created_at
+        }));
+        setPosts(prev => reset ? formattedPosts : [...prev, ...formattedPosts]);
+        setHasMore(data.length === 10);
       }
     } else {
-      localStorage.setItem("platformPosts", JSON.stringify(updatedPosts));
+      // Mock data logic
+      const stored = localStorage.getItem("mockPosts");
+      let allPosts = stored ? JSON.parse(stored) : initialPosts;
+      if (search) {
+        allPosts = allPosts.filter((p: PostType) =>
+          p.title.includes(search.toUpperCase()) || p.content.toUpperCase().includes(search.toUpperCase())
+        );
+      }
+      setPosts(allPosts); // No real pagination for mock
+      setHasMore(false);
     }
-  };
+  }, []);
 
-  const handleBurnIdentity = () => {
-    localStorage.removeItem("anonUser");
-    router.push("/");
+  useEffect(() => {
+    const checkAuth = async () => {
+      let currentAnonId = "UNKNOWN";
+      if (supabase) {
+         const { data: { session } } = await supabase.auth.getSession();
+         if (!session) {
+           router.push("/");
+           return;
+         }
+         // Fetch profile to get anon_id
+         const { data: profile } = await supabase.from('profiles').select('anon_id').eq('id', session.user.id).single();
+         if (profile) currentAnonId = profile.anon_id;
+      } else {
+        const storedUser = localStorage.getItem("anonUser");
+        if (!storedUser) {
+          router.push("/");
+          return;
+        }
+        currentAnonId = JSON.parse(storedUser).id;
+        if (!localStorage.getItem("mockPosts")) {
+          localStorage.setItem("mockPosts", JSON.stringify(initialPosts));
+        }
+      }
+      setAnonId(currentAnonId);
+      fetchPosts(1, searchQuery, true);
+    };
+
+    checkAuth();
+  }, [router, fetchPosts, searchQuery]); // Re-fetch on search change
+
+  // Real-time subscription
+  useEffect(() => {
+    if (!supabase) return;
+
+    const channel = supabase
+      .channel('public:posts')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, (payload) => {
+        const newPost: PostType = {
+           id: payload.new.id,
+           authorId: payload.new.author_id,
+           title: payload.new.title,
+           content: payload.new.content,
+           type: payload.new.type as any,
+           tag: payload.new.tag,
+           flags: payload.new.flags,
+           createdAt: payload.new.created_at
+        };
+        // Prepend new post
+        setPosts(prev => [newPost, ...prev]);
+      })
+      .subscribe();
+
+    return () => {
+      supabase?.removeChannel(channel);
+    };
+  }, []);
+
+
+  // Infinite scroll trigger
+  useEffect(() => {
+    if (inView && hasMore) {
+       const nextPage = page + 1;
+       setPage(nextPage);
+       fetchPosts(nextPage, searchQuery, false);
+    }
+  }, [inView, hasMore, page, fetchPosts, searchQuery]);
+
+
+  const handleCreatePost = async (title: string, content: string, type: 'document'|'audio', tag: string) => {
+    if (supabase) {
+      const { error } = await supabase.from('posts').insert([{
+        author_id: anonId,
+        title: title.toUpperCase(),
+        content: content,
+        type: type,
+        tag: tag.toUpperCase()
+      }]);
+      if (error) {
+        console.error("Error creating post:", error);
+      }
+    } else {
+      const newPost: PostType = {
+        id: "p" + Date.now(),
+        authorId: anonId,
+        title: title.toUpperCase(),
+        content,
+        type,
+        tag: tag.toUpperCase(),
+        flags: 0,
+        createdAt: new Date().toISOString()
+      };
+      const updated = [newPost, ...posts];
+      setPosts(updated);
+      localStorage.setItem("mockPosts", JSON.stringify(updated));
+    }
   };
 
   const handleFlag = async (id: string) => {
-    // Update local state immediately for fast feedback
-    const updatedPosts = posts.map(post => {
-      if (post.id === id) {
-        return { ...post, flags: post.flags + 1 };
-      }
-      return post;
-    });
-    setPosts(updatedPosts);
-
     if (supabase) {
-      // Find the current flags
-      const post = posts.find(p => p.id === id);
-      if (post) {
+       // Ideally a stored procedure or an edge function handles this to increment atomically
+       // For now, doing a simple update which is subject to race conditions
+       const post = posts.find(p => p.id === id);
+       if (post) {
          await supabase.from('posts').update({ flags: post.flags + 1 }).eq('id', id);
-      }
+         setPosts(posts.map(p => p.id === id ? { ...p, flags: p.flags + 1 } : p));
+       }
     } else {
-      localStorage.setItem("platformPosts", JSON.stringify(updatedPosts));
+      const updated = posts.map(p => {
+        if (p.id === id) return { ...p, flags: p.flags + 1 };
+        return p;
+      });
+      setPosts(updated);
+      localStorage.setItem("mockPosts", JSON.stringify(updated));
+      alert("CONTENT FLAGGED FOR MODERATION.");
     }
   };
 
-  if (!user) return null;
-
-  // Algorithm: hide posts with > 3 flags
-  const visiblePosts = posts.filter(post => {
-    if (post.flags > 3) return false;
-    if (searchQuery.trim() === "") return true;
-
-    const lowerQuery = searchQuery.toLowerCase();
-    return (
-      post.title.toLowerCase().includes(lowerQuery) ||
-      post.content.toLowerCase().includes(lowerQuery) ||
-      post.tag.toLowerCase().includes(lowerQuery)
-    );
-  });
+  const handleLogout = async () => {
+    if (supabase) {
+      await supabase.auth.signOut();
+    } else {
+      localStorage.removeItem("anonUser");
+    }
+    router.push("/");
+  };
 
   return (
     <main className="max-w-3xl mx-auto p-4 md:p-8 min-h-screen">
-      <header className="mb-12 border-b-2 border-black pb-4 flex flex-col md:flex-row justify-between items-start md:items-end gap-4">
-        <div className="flex flex-col gap-2 w-full md:w-auto">
+      <header className="flex flex-col md:flex-row justify-between items-baseline mb-12 border-b-4 border-black pb-4">
+        <div>
           <h1 className="text-3xl font-bold tracking-tighter uppercase">Global Feed</h1>
+          <p className="font-mono text-sm uppercase mt-2">ID: {anonId}</p>
+        </div>
+        <div className="flex gap-4 mt-4 md:mt-0">
           <input
             type="text"
-            placeholder="SEARCH NETWORK..."
+            placeholder="SEARCH..."
             value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full md:w-64 border border-black p-2 font-mono text-sm uppercase focus:outline-none focus:ring-1 focus:ring-black"
+            onChange={(e) => {
+               setSearchQuery(e.target.value);
+               setPage(1); // Reset page on search
+            }}
+            className="border border-black px-2 py-1 font-mono text-sm uppercase focus:outline-none focus:ring-1 focus:ring-black"
           />
-        </div>
-        <div className="flex flex-col md:flex-row items-start md:items-end gap-4">
-          <div className="text-left md:text-right">
-            <div className="text-sm font-bold uppercase">LOGGED IN AS:</div>
-            <div className="text-xl font-mono border border-black px-2 py-1 inline-block mt-1">
-              {user.id}
-            </div>
-          </div>
-          <button
-            onClick={handleBurnIdentity}
-            className="py-2 px-4 border border-black text-black font-bold uppercase text-xs hover:bg-black hover:text-white transition-colors"
-          >
-            BURN IDENTITY
+          <button onClick={handleLogout} className="text-xs font-bold uppercase underline hover:text-gray-600">
+            DISCONNECT
           </button>
         </div>
       </header>
@@ -159,12 +214,19 @@ export default function Feed() {
       <section>
         <CreatePost onCreate={handleCreatePost} />
 
-        {visiblePosts.length === 0 ? (
+        {posts.length === 0 ? (
           <p className="text-center font-mono uppercase">NO CONTENT AVAILABLE.</p>
         ) : (
-          visiblePosts.map(post => (
+          posts.map(post => (
             <Post key={post.id} post={post} onFlag={handleFlag} />
           ))
+        )}
+
+        {/* Infinite Scroll trigger element */}
+        {hasMore && (
+           <div ref={ref} className="h-10 w-full flex items-center justify-center">
+             <span className="font-mono text-xs uppercase animate-pulse">LOADING MORE...</span>
+           </div>
         )}
       </section>
     </main>

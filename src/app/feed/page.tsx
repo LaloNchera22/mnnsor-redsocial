@@ -8,6 +8,15 @@ import { Post as PostType, initialPosts } from "@/lib/mockData";
 import { supabase } from "@/lib/supabase";
 import { useInView } from "react-intersection-observer";
 
+interface Notification {
+  id: string;
+  content: string;
+  read: boolean;
+  created_at: string;
+  user_id?: string;
+  type?: string;
+}
+
 export default function Feed() {
   const [posts, setPosts] = useState<PostType[]>([]);
   const [anonId, setAnonId] = useState<string>("UNKNOWN");
@@ -16,7 +25,7 @@ export default function Feed() {
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
   const [showNotifications, setShowNotifications] = useState(false);
-  const [notifications, setNotifications] = useState<Array<Record<string, unknown>>>([]);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
 
   useEffect(() => {
     const handler = setTimeout(() => {
@@ -83,7 +92,7 @@ export default function Feed() {
       let allPosts: PostType[] = stored ? JSON.parse(stored) : initialPosts;
       if (search) {
         allPosts = allPosts.filter((p: PostType) => (
-          p.title.includes(search.toUpperCase()) || p.content.toUpperCase().includes(search.toUpperCase()) || p.tag.toUpperCase().includes(search.toUpperCase())
+          p.title.indexOf(search.toUpperCase()) !== -1 || p.content.toUpperCase().indexOf(search.toUpperCase()) !== -1 || p.tag.toUpperCase().indexOf(search.toUpperCase()) !== -1
         ));
       }
       allPosts = allPosts.filter((p: PostType) => p.flags < 4);
@@ -137,9 +146,15 @@ export default function Feed() {
       if (supabase && currentAnonId !== "UNKNOWN") {
         subscription = supabase.channel(`notifications_${currentAnonId}`)
           .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${currentAnonId}` }, payload => {
-            setNotifications(prev => [payload.new, ...prev].slice(0, 10));
+            setNotifications(prev => [payload.new as Notification, ...prev].slice(0, 10));
           })
-          .subscribe();
+          .subscribe((status) => {
+            if (status === 'CHANNEL_ERROR' || status === 'CLOSED') {
+              setTimeout(() => {
+                 if (subscription) subscription.subscribe();
+              }, 5000);
+            }
+          });
       }
     };
 
@@ -173,9 +188,15 @@ export default function Feed() {
         setPosts(prev => [newPost, ...prev]);
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${anonId}` }, (payload) => {
-        setNotifications(prev => [payload.new as Record<string, unknown>, ...prev]);
+        setNotifications(prev => [payload.new as Notification, ...prev]);
       })
-      .subscribe();
+      .subscribe((status) => {
+        if (status === 'CHANNEL_ERROR' || status === 'CLOSED') {
+          setTimeout(() => {
+             if (channel) channel.subscribe();
+          }, 5000);
+        }
+      });
 
     return () => {
       supabase?.removeChannel(channel);
@@ -215,7 +236,10 @@ export default function Feed() {
          alert("RATE LIMIT EXCEEDED FOR POSTS. PLEASE WAIT.");
          return;
       }
-    } catch(_e) {}
+    } catch(e) {
+      alert("RATE LIMIT CHECK FAILED");
+      return;
+    }
 
     if (supabase) {
       const { error } = await supabase.from('posts').insert([{
@@ -227,6 +251,7 @@ export default function Feed() {
       }]);
       if (error) {
         console.error("Error creating post:", error);
+        alert("Error: " + error.message);
       }
     } else {
       const newPost: PostType = {
@@ -253,12 +278,8 @@ export default function Feed() {
          alert("RATE LIMIT EXCEEDED FOR FLAGS. PLEASE WAIT.");
          return;
       }
-    } catch(_e) {}
-
-    // Check locally if already flagged
-    const localFlags = JSON.parse(localStorage.getItem("flagged_posts") || "[]");
-    if (localFlags.includes(id)) {
-      alert("YOU HAVE ALREADY FLAGGED THIS CONTENT.");
+    } catch(e) {
+      alert("RATE LIMIT CHECK FAILED");
       return;
     }
 
@@ -289,7 +310,8 @@ export default function Feed() {
       alert("CONTENT FLAGGED FOR MODERATION.");
     }
 
-    // Save to local flags array
+    // Save to local flags array if supabase exists (mock saves it in its else block already, but we need it here for supabase UI fallback, wait no we don't, but let's just grab the local variable)
+    const localFlags = JSON.parse(localStorage.getItem("flagged_posts") || "[]");
     localFlags.push(id);
     localStorage.setItem("flagged_posts", JSON.stringify(localFlags));
   };
@@ -347,12 +369,12 @@ export default function Feed() {
              ) : (
                <ul className="space-y-4">
                  {notifications.map(n => (
-                   <li key={n.id as string} className={`font-mono text-xs border-l-2 ${n.read ? 'border-gray-400 text-gray-600' : 'border-black'} pl-2 flex justify-between items-start`}>
+                   <li key={n.id} className={`font-mono text-xs border-l-2 ${n.read ? 'border-gray-400 text-gray-600' : 'border-black'} pl-2 flex justify-between items-start`}>
                      <div>
-                       <span className="font-bold text-red-600 mr-2">[{n.type as string}]</span>
-                       {n.content as string}
+                       <span className="font-bold text-red-600 mr-2">[{n.type || 'SYSTEM'}]</span>
+                       {n.content}
                      </div>
-                     {!n.read && <button onClick={() => handleMarkAsRead(n.id as string)} className="text-[10px] uppercase underline ml-2 hover:text-gray-600">MARK READ</button>}
+                     {!n.read && <button onClick={() => handleMarkAsRead(n.id)} className="text-[10px] uppercase underline ml-2 hover:text-gray-600">MARK READ</button>}
                    </li>
                  ))}
                </ul>

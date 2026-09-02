@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 
-const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-expect-error Stripe version is strictly typed, so we force it to match library expectations
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-01-27.acacia' }) : null;
 
 import { checkRateLimit } from '@/lib/rateLimit';
 

@@ -218,6 +218,15 @@ export default function Home() {
           </button>
         </div>
 
+        {!supabase && (
+           <button
+              onClick={() => { setUsername('admin@admin.com'); setPassword('mock'); setIsLogin(true); setIsResetMode(false); }}
+              className="mt-6 text-xs font-mono font-bold uppercase underline"
+           >
+              DEV: FILL MOCK ADMIN
+           </button>
+        )}
+
         <p className="mt-4 text-xs text-gray-500 font-mono">
           YOUR ANONYMOUS ID WILL BE RANDOMLY GENERATED. NO OTHER DATA REQUIRED.
         </p>

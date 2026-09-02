@@ -1,6 +1,14 @@
+import { Redis } from '@upstash/redis'
 import { supabase } from './supabase';
 
-// Use an LRU Cache as fallback if Supabase is not available
+const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
+const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
+
+const redis = redisUrl && redisToken ? new Redis({
+  url: redisUrl,
+  token: redisToken,
+}) : null;
+
 class LRUCache {
   private capacity: number;
   private cache: Map<string, { count: number, timestamp: number }>;
@@ -34,6 +42,18 @@ class LRUCache {
 export const rateLimitStore = new LRUCache(10000);
 
 export async function checkRateLimit(ip: string, maxRequests: number = 10, windowMs: number = 60000): Promise<boolean> {
+  if (redis) {
+    try {
+      const key = `ratelimit:${ip}`;
+      const count = await redis.incr(key);
+      if (count === 1) {
+        await redis.pexpire(key, windowMs);
+      }
+      return count <= maxRequests;
+    } catch (e) {
+      console.error("Redis rate limit error, falling back to database/memory:", e);
+    }
+  }
   const now = Date.now();
 
   if (supabase) {

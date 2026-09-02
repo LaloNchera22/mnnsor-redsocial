@@ -7,7 +7,7 @@ export async function POST(req: Request) {
 
   const limit = action === 'flag' ? 20 : 5; // 20 flags or 5 posts per minute
 
-  if (!checkRateLimit(`${ip}_${action}`, limit, 60000)) {
+  if (!(await checkRateLimit(`${ip}_${action}`, limit, 60000))) {
      return NextResponse.json({ error: `Rate limit exceeded for ${action}.` }, { status: 429 });
   }
 

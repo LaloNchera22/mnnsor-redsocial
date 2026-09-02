@@ -20,12 +20,15 @@ test('renders post with title and content', () => {
   expect(screen.getByText('TEST CONTENT')).toBeDefined();
 });
 
-test('handles flagging correctly', () => {
+
+test('handles flagging correctly', async () => {
   const onFlagMock = vi.fn();
   render(<Post post={mockPost} onFlag={onFlagMock} />);
 
-  const flagButton = screen.getByText('FLAG AS FAKE NEWS');
-  fireEvent.click(flagButton);
+  // Note: the button could be selected by role
+  const flagButtons = screen.getAllByRole('button', { name: /Flag as fake news/i });
+
+  fireEvent.click(flagButtons[flagButtons.length - 1]);
 
   expect(onFlagMock).toHaveBeenCalledWith('p1');
 });

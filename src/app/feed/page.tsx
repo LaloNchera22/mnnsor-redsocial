@@ -11,6 +11,7 @@ import { useInView } from "react-intersection-observer";
 export default function Feed() {
   const [posts, setPosts] = useState<PostType[]>([]);
   const [anonId, setAnonId] = useState<string>("UNKNOWN");
+  const [showDowngradeWarning, setShowDowngradeWarning] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
@@ -107,15 +108,24 @@ export default function Feed() {
            return;
          }
          // Fetch profile to get anon_id
-         const { data: profile } = await supabase.from('profiles').select('anon_id').eq('id', session.user.id).single();
-         if (profile) currentAnonId = profile.anon_id;
+         const { data: profile } = await supabase.from('profiles').select('anon_id, has_paid_setup, is_subscribed').eq('id', session.user.id).single();
+         if (profile) {
+            currentAnonId = profile.anon_id;
+            if (profile.has_paid_setup && !profile.is_subscribed) {
+               setShowDowngradeWarning(true);
+            }
+         }
       } else {
         const storedUser = localStorage.getItem("anonUser");
         if (!storedUser) {
           router.push("/");
           return;
         }
-        currentAnonId = JSON.parse(storedUser).id;
+        const user = JSON.parse(storedUser);
+        currentAnonId = user.id;
+        if (user.hasPaidSetup && !user.isSubscribed) {
+           setShowDowngradeWarning(true);
+        }
         if (!localStorage.getItem("mockPosts")) {
           localStorage.setItem("mockPosts", JSON.stringify(initialPosts));
         }
@@ -142,12 +152,12 @@ export default function Feed() {
     };
   }, [router, fetchPosts, debouncedSearch, fetchNotifications]); // Re-fetch on search change
 
-  // Real-time subscription
+  // Real-time subscriptions
   useEffect(() => {
-    if (!supabase) return;
+    if (!supabase || !anonId || anonId === "UNKNOWN") return;
 
     const channel = supabase
-      .channel('public:posts')
+      .channel('public_updates')
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'posts' }, (payload) => {
         const newPost: PostType = {
            id: payload.new.id,
@@ -162,12 +172,15 @@ export default function Feed() {
         // Prepend new post
         setPosts(prev => [newPost, ...prev]);
       })
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'notifications', filter: `user_id=eq.${anonId}` }, (payload) => {
+        setNotifications(prev => [payload.new as Record<string, unknown>, ...prev]);
+      })
       .subscribe();
 
     return () => {
       supabase?.removeChannel(channel);
     };
-  }, []);
+  }, [anonId]);
 
 
   // Infinite scroll trigger
@@ -183,6 +196,18 @@ export default function Feed() {
   }, [inView, hasMore, page, fetchPosts, debouncedSearch]);
 
 
+
+    const handleMarkAsRead = async (id: string) => {
+        if (supabase) {
+            await supabase.from('notifications').update({ read: true }).eq('id', id);
+            setNotifications(prev => prev.filter(n => n.id !== id));
+        } else {
+            const updated = notifications.filter(n => n.id !== id);
+            setNotifications(updated);
+            localStorage.setItem("mockNotifications", JSON.stringify(updated));
+        }
+    };
+
   const handleCreatePost = async (title: string, content: string, type: 'document'|'audio', tag: string) => {
     try {
       const rlRes = await fetch('/api/rate-limit', { method: 'POST', body: JSON.stringify({ action: 'post' }) });
@@ -190,7 +215,7 @@ export default function Feed() {
          alert("RATE LIMIT EXCEEDED FOR POSTS. PLEASE WAIT.");
          return;
       }
-    } catch(e) {}
+    } catch(_e) {}
 
     if (supabase) {
       const { error } = await supabase.from('posts').insert([{
@@ -228,7 +253,7 @@ export default function Feed() {
          alert("RATE LIMIT EXCEEDED FOR FLAGS. PLEASE WAIT.");
          return;
       }
-    } catch(e) {}
+    } catch(_e) {}
 
     // Check locally if already flagged
     const localFlags = JSON.parse(localStorage.getItem("flagged_posts") || "[]");
@@ -322,9 +347,12 @@ export default function Feed() {
              ) : (
                <ul className="space-y-4">
                  {notifications.map(n => (
-                   <li key={n.id as string} className={`font-mono text-xs border-l-2 ${n.read ? 'border-gray-400 text-gray-600' : 'border-black'} pl-2`}>
-                     <span className="font-bold text-red-600 mr-2">[{n.type as string}]</span>
-                     {n.content as string}
+                   <li key={n.id as string} className={`font-mono text-xs border-l-2 ${n.read ? 'border-gray-400 text-gray-600' : 'border-black'} pl-2 flex justify-between items-start`}>
+                     <div>
+                       <span className="font-bold text-red-600 mr-2">[{n.type as string}]</span>
+                       {n.content as string}
+                     </div>
+                     {!n.read && <button onClick={() => handleMarkAsRead(n.id as string)} className="text-[10px] uppercase underline ml-2 hover:text-gray-600">MARK READ</button>}
                    </li>
                  ))}
                </ul>
@@ -332,6 +360,16 @@ export default function Feed() {
            </div>
         )}
       </header>
+
+
+      {showDowngradeWarning && (
+        <div className="mb-8 border border-red-600 bg-red-50 p-4 text-center">
+          <p className="font-mono text-sm text-red-600 font-bold uppercase mb-2">YOUR MONTHLY SUBSCRIPTION HAS EXPIRED OR BEEN CANCELED.</p>
+          <button onClick={() => router.push('/')} className="px-4 py-2 bg-red-600 text-white font-bold uppercase text-xs">
+            RENEW SUBSCRIPTION
+          </button>
+        </div>
+      )}
 
       <section>
         <CreatePost onCreate={handleCreatePost} />

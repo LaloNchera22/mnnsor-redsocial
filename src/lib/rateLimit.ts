@@ -1,4 +1,5 @@
 import { Redis } from '@upstash/redis'
+import { supabase } from './supabase';
 
 const redisUrl = process.env.UPSTASH_REDIS_REST_URL;
 const redisToken = process.env.UPSTASH_REDIS_REST_TOKEN;
@@ -50,16 +51,29 @@ export async function checkRateLimit(ip: string, maxRequests: number = 10, windo
       }
       return count <= maxRequests;
     } catch (e) {
-      console.error("Redis rate limit error, falling back to memory:", e);
+      console.error("Redis rate limit error, falling back to database/memory:", e);
     }
   }
-
   const now = Date.now();
-  let limitInfo = rateLimitStore.get(ip);
-  if (!limitInfo || (now - limitInfo.timestamp > windowMs)) {
-    limitInfo = { count: 0, timestamp: now };
+
+  if (supabase) {
+    // Distributed rate limit using Supabase RPC to avoid race conditions and RLS blocks
+    const { data: newCount, error } = await supabase.rpc('increment_rate_limit', { client_ip: ip, window_ms: windowMs });
+
+    if (error) {
+       console.error("Rate limit RPC error:", error);
+       return true; // fail-open for rate limiting to not block users on DB error
+    }
+
+    return newCount <= maxRequests;
+  } else {
+    // In-memory fallback
+    let limitInfo = rateLimitStore.get(ip);
+    if (!limitInfo || (now - limitInfo.timestamp > windowMs)) {
+      limitInfo = { count: 0, timestamp: now };
+    }
+    limitInfo.count++;
+    rateLimitStore.set(ip, limitInfo);
+    return limitInfo.count <= maxRequests;
   }
-  limitInfo.count++;
-  rateLimitStore.set(ip, limitInfo);
-  return limitInfo.count <= maxRequests;
 }

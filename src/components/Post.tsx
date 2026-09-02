@@ -322,17 +322,19 @@ export default function Post({ post, onFlag }: PostProps) {
         <span className="text-xs uppercase font-mono">
           TYPE: {post.type} | FLAGS: {post.flags}
         </span>
-        <button
-          onClick={() => {
-             setIsFlagged(true);
-             onFlag(post.id);
-          }}
-          disabled={isFlagged}
-          aria-label="Flag as fake news"
-          className={`text-xs py-2 px-4 border uppercase font-bold transition-colors disabled:opacity-50 ${isFlagged ? 'bg-black text-white border-black' : 'text-red-600 border-red-600 hover:bg-red-600 hover:text-white'}`}
-        >
-          {isFlagged ? 'FLAGGED' : 'FLAG AS FAKE NEWS'}
-        </button>
+                {post.authorId !== anonId && (
+          <button
+            onClick={() => {
+               setIsFlagged(true);
+               onFlag(post.id);
+            }}
+            disabled={isFlagged}
+            aria-label="Flag as fake news"
+            className={`text-xs py-2 px-4 border uppercase font-bold transition-colors disabled:opacity-50 ${isFlagged ? 'bg-black text-white border-black' : 'text-red-600 border-red-600 hover:bg-red-600 hover:text-white'}`}
+          >
+            {isFlagged ? 'FLAGGED' : 'FLAG AS FAKE NEWS'}
+          </button>
+        )}
       </footer>
     </article>
   );

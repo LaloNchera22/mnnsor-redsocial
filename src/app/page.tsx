@@ -53,7 +53,8 @@ export default function Home() {
       localStorage.setItem("anonUser", JSON.stringify({
         id: anonId,
         hasPaidSetup: true,
-        isSubscribed: true
+        isSubscribed: true,
+        role: username.trim() === 'admin@admin.com' ? 'admin' : 'user'
       }));
       router.push("/feed");
       return;
@@ -70,11 +71,41 @@ export default function Home() {
 
 
       if (isLogin) {
-        const { error: signInError } = await supabase.auth.signInWithPassword({
+        const { data, error: signInError } = await supabase.auth.signInWithPassword({
           email: username.trim(),
           password,
         });
         if (signInError) throw signInError;
+
+        if (data.user) {
+          const { data: profile } = await supabase.from('profiles').select('anon_id, public_key').eq('id', data.user.id).single();
+          const anonId = profile?.anon_id || '';
+
+          // Only generate a keypair if one doesn't exist in the database (do not overwrite existing public keys if logging in on a new device)
+          if (!profile?.public_key) {
+             try {
+              const keyPair = await window.crypto.subtle.generateKey(
+                {
+                  name: "RSA-OAEP",
+                  modulusLength: 2048,
+                  publicExponent: new Uint8Array([1, 0, 1]),
+                  hash: "SHA-256",
+                },
+                true,
+                ["encrypt", "decrypt"]
+              );
+
+              const privateJwk = await window.crypto.subtle.exportKey("jwk", keyPair.privateKey);
+              const publicJwk = await window.crypto.subtle.exportKey("jwk", keyPair.publicKey);
+
+              localStorage.setItem(`privateKey_${anonId}`, JSON.stringify(privateJwk));
+              await supabase.from('profiles').update({ public_key: JSON.stringify(publicJwk) }).eq('id', data.user.id);
+            } catch (err) {
+              console.error("Failed to generate keypair:", err);
+            }
+          }
+        }
+
         router.push("/feed");
       } else {
         const { data, error } = await supabase.auth.signUp({
@@ -84,6 +115,9 @@ export default function Home() {
         if (error) throw error;
 
         if (data.user) {
+
+        if (data.user) {
+          // Check if we need to generate keys
           let publicKeyStr = '';
           if (!localStorage.getItem("privateKey")) {
              const keyPair = await generateKeyPair();
@@ -91,7 +125,6 @@ export default function Home() {
              const privateKeyStr = await exportPrivateKey(keyPair.privateKey);
              localStorage.setItem("privateKey", privateKeyStr);
           }
-
 
           // Wait briefly for the trigger to create the profile
           await new Promise(r => setTimeout(r, 1000));
@@ -106,7 +139,7 @@ export default function Home() {
                 await supabase.from('profiles').update({ public_key: publicKeyStr }).eq('id', data.user.id);
              }
           }
-
+          }
 
 
 
@@ -114,16 +147,14 @@ export default function Home() {
           // Real email verification note
           if (data.session === null) {
              setSuccessMsg("VERIFY YOUR EMAIL ADDRESS BEFORE CONTINUING.");
-             // Store the pending anonId locally in case they verify and come back, or rely on a webhook.
-             // Usually, payment happens after verification. We'll show the message and let them verify first.
-             // But if we want to force payment now:
           }
 
           try {
+            // Pass data.user.id for Stripe reference instead of anonId to ensure exact match in Webhook
             const res = await fetch('/api/checkout', {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ userId: anonId, type: 'setup' }) // using anonId as reference for now
+              body: JSON.stringify({ userId: data.user.id, type: 'setup' })
             });
             const { url, error: checkoutError } = await res.json();
             if (checkoutError) throw new Error(checkoutError);

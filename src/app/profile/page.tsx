@@ -124,8 +124,52 @@ export default function ProfilePage() {
     fetchProfileData();
   }, [router]);
 
-  const handleFlag = () => {
-     // cannot flag own post visually
+  const handleFlag = async (id: string) => {
+    try {
+      const rlRes = await fetch('/api/rate-limit', { method: 'POST', body: JSON.stringify({ action: 'flag' }) });
+      if (!rlRes.ok) {
+         alert("RATE LIMIT EXCEEDED FOR FLAGS. PLEASE WAIT.");
+         return;
+      }
+    } catch(e) {
+      alert('RATE LIMIT CHECK FAILED');
+      return;
+    }
+
+    if (supabase) {
+       const { error } = await supabase.from('post_flags').insert([{ post_id: id, user_id: anonId }]);
+       if (error) {
+         if (error.code === '23505') {
+            alert("YOU HAVE ALREADY FLAGGED THIS CONTENT.");
+         } else {
+            alert("Error: " + error.message);
+         }
+         return;
+       }
+       const post = posts.find(p => p.id === id);
+       if (post) {
+         await supabase.from('posts').update({ flags: post.flags + 1 }).eq('id', id);
+         setPosts(posts.map(p => p.id === id ? { ...p, flags: p.flags + 1 } : p));
+         alert("CONTENT FLAGGED FOR MODERATION.");
+       }
+    } else {
+      const localFlags = JSON.parse(localStorage.getItem("flagged_posts") || "[]");
+      if (localFlags.indexOf(id) !== -1) {
+        alert("YOU HAVE ALREADY FLAGGED THIS CONTENT.");
+        return;
+      }
+      localFlags.push(id);
+      localStorage.setItem("flagged_posts", JSON.stringify(localFlags));
+
+      const stored = localStorage.getItem("mockPosts");
+      let allPosts = stored ? JSON.parse(stored) : [];
+      allPosts = allPosts.map((p: PostType) => p.id === id ? { ...p, flags: p.flags + 1 } : p);
+      localStorage.setItem("mockPosts", JSON.stringify(allPosts));
+
+      const updated = posts.map(p => p.id === id ? { ...p, flags: p.flags + 1 } : p);
+      setPosts(updated);
+      alert("CONTENT FLAGGED FOR MODERATION.");
+    }
   };
 
   if (loading) {

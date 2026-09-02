@@ -10,22 +10,41 @@ interface PostProps {
 }
 
 
+  const encryptMessage = async (text: string, recipientId: string): Promise<string | null> => {
+    if (!supabase) return btoa(unescape(encodeURIComponent(text)));
+    try {
+       const { data } = await supabase.from('profiles').select('public_key').eq('anon_id', recipientId).single();
+       if (!data || !data.public_key) {
+         throw new Error("Recipient public key not found");
+       }
 
+       const publicJwk = JSON.parse(data.public_key);
+       const publicKey = await window.crypto.subtle.importKey(
+         "jwk",
+         publicJwk,
+         {
+           name: "RSA-OAEP",
+           hash: "SHA-256",
+         },
+         true,
+         ["encrypt"]
+       );
 
-  const encryptMessageLocally = async (text: string, recipientId: string): Promise<string> => {
-        try {
-        if (!supabase) return "ENCRYPTED_MOCK";
-        const { data, error } = await supabase.from('profiles').select('public_key').eq('anon_id', recipientId).single();
-        if (error || !data || !data.public_key) {
-            throw new Error("Public key not found for recipient.");
-        }
-        const pubKey = await importPublicKey(data.public_key);
-        return await encryptMessage(text, pubKey);
-        } catch (e) {
-        console.error("Encryption failed", e);
-        return "ENCRYPTED_MOCK";
-        }
-    };
+       const encoder = new TextEncoder();
+       const encodedMessage = encoder.encode(text);
+       const encrypted = await window.crypto.subtle.encrypt(
+         { name: "RSA-OAEP" },
+         publicKey,
+         encodedMessage
+       );
+
+       const encryptedBase64 = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(encrypted))));
+       return `ENC:[RSA-OAEP]:${encryptedBase64}`;
+    } catch (e) {
+       console.error("Encryption error", e);
+       return null;
+    }
+  };
 
 export default function Post({ post, onFlag }: PostProps) {
   const [isFollowing, setIsFollowing] = useState(false);
@@ -171,7 +190,13 @@ export default function Post({ post, onFlag }: PostProps) {
     const message = prompt(`ENTER ANONYMOUS MESSAGE FOR AUTHOR ${post.authorId}:`);
     if (message) {
       if (supabase && anonId) {
-        const encryptedMessage = await encryptMessageLocally(message, post.authorId);
+        const encryptedMessage = await encryptMessage(message, post.authorId);
+
+        if (!encryptedMessage) {
+          alert(`ERROR: SECURE ENCRYPTION FAILED. MESSAGE ABORTED.`);
+          return;
+        }
+
         const { error } = await supabase.from('messages').insert([{
            sender_id: anonId,
            receiver_id: post.authorId,
@@ -322,7 +347,7 @@ export default function Post({ post, onFlag }: PostProps) {
         <span className="text-xs uppercase font-mono">
           TYPE: {post.type} | FLAGS: {post.flags}
         </span>
-                {post.authorId !== anonId && (
+        {post.authorId !== anonId && (
           <button
             onClick={() => {
                setIsFlagged(true);

@@ -51,7 +51,7 @@ export async function POST(req: Request) {
         if (existingEvent) {
           return NextResponse.json({ received: true, note: 'Already processed' });
         }
-        await supabaseAdmin.from('webhook_events').insert([{ id: eventId, type: event.type }]);
+        await supabaseAdmin.from('webhook_events').insert([{ id: eventId }]);
       } else {
         const processedEvents = global as unknown as { __webhook_cache?: Set<string> };
         if (!processedEvents.__webhook_cache) processedEvents.__webhook_cache = new Set();

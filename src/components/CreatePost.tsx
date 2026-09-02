@@ -56,7 +56,7 @@ export default function CreatePost({ onCreate }: CreatePostProps) {
           }
 
           const { data } = supabase.storage.from('audio_uploads').getPublicUrl(filePath);
-          finalContent = data.publicUrl;
+          finalContent = xss(data.publicUrl);
         } else {
            // Fallback to URL input or just use the mock URL
            if (!content.trim() && !file) {

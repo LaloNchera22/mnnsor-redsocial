@@ -5,9 +5,17 @@ import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
 import { Post as PostType } from "@/lib/mockData";
 
+interface AuditLog {
+  id: string;
+  admin_id: string;
+  action: string;
+  target_id: string;
+  created_at: string;
+}
+
 export default function AdminDashboard() {
   const [flaggedPosts, setFlaggedPosts] = useState<PostType[]>([]);
-  const [auditLogs, setAuditLogs] = useState<Array<Record<string, unknown>>>([]);
+  const [auditLogs, setAuditLogs] = useState<AuditLog[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
   const [promoteUserId, setPromoteUserId] = useState("");
@@ -99,11 +107,15 @@ export default function AdminDashboard() {
       const { data: profile } = await supabase.from('profiles').select('anon_id').eq('id', session?.user?.id).single();
 
       if (action === 'remove') {
-        await supabase.from('posts').delete().eq('id', postId);
-        await supabase.from('audit_logs').insert([{ admin_id: profile?.anon_id, action: 'removed_post', target_id: postId }]);
+        const { error: delError } = await supabase.from('posts').delete().eq('id', postId);
+        if (delError) alert("Error: " + delError.message);
+        const { error: logError } = await supabase.from('audit_logs').insert([{ admin_id: profile?.anon_id, action: 'removed_post', target_id: postId }]);
+        if (logError) alert("Error: " + logError.message);
       } else {
-        await supabase.from('posts').update({ flags: 0 }).eq('id', postId);
-        await supabase.from('audit_logs').insert([{ admin_id: profile?.anon_id, action: 'cleared_flags', target_id: postId }]);
+        const { error: updError } = await supabase.from('posts').update({ flags: 0 }).eq('id', postId);
+        if (updError) alert("Error: " + updError.message);
+        const { error: logError } = await supabase.from('audit_logs').insert([{ admin_id: profile?.anon_id, action: 'cleared_flags', target_id: postId }]);
+        if (logError) alert("Error: " + logError.message);
       }
       fetchFlaggedContent();
     } else {
@@ -206,12 +218,12 @@ export default function AdminDashboard() {
         ) : (
           <ul className="space-y-2 border border-black p-4 bg-gray-50">
              {auditLogs.map(log => (
-               <li key={log.id as string} className="font-mono text-xs uppercase border-b border-gray-300 pb-2">
-                 <span className="font-bold text-black">{new Date(log.created_at as string).toLocaleString()}</span> — Admin {log.admin_id as string}
+               <li key={log.id} className="font-mono text-xs uppercase border-b border-gray-300 pb-2">
+                 <span className="font-bold text-black">{new Date(log.created_at).toLocaleString()}</span> — Admin {log.admin_id}
                  <span className={log.action === 'removed_post' ? 'text-red-600 font-bold mx-2' : 'text-blue-600 font-bold mx-2'}>
-                   {log.action as string}
+                   {log.action}
                  </span>
-                 TARGET: {log.target_id as string}
+                 TARGET: {log.target_id}
                </li>
              ))}
           </ul>

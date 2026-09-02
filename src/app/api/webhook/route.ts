@@ -2,7 +2,9 @@ import { NextResponse } from 'next/server';
 import Stripe from 'stripe';
 import { createClient } from '@supabase/supabase-js';
 
-const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY) : null;
+// eslint-disable-next-line @typescript-eslint/ban-ts-comment
+// @ts-expect-error Stripe version is strictly typed, so we force it to match library expectations
+const stripe = process.env.STRIPE_SECRET_KEY ? new Stripe(process.env.STRIPE_SECRET_KEY, { apiVersion: '2025-01-27.acacia' }) : null;
 
 const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
 
@@ -53,12 +55,7 @@ export async function POST(req: Request) {
         }
         await supabaseAdmin.from('webhook_events').insert([{ id: eventId, type: event.type }]);
       } else {
-        const processedEvents = global as unknown as { __webhook_cache?: Set<string> };
-        if (!processedEvents.__webhook_cache) processedEvents.__webhook_cache = new Set();
-        if (processedEvents.__webhook_cache.has(eventId)) {
-           return NextResponse.json({ received: true, note: 'Already processed' });
-        }
-        processedEvents.__webhook_cache!.add(eventId);
+        return NextResponse.json({ error: 'Supabase Admin not configured, cannot process idempotency' }, { status: 500 });
       }
 
       const session = event.data.object as Stripe.Checkout.Session;

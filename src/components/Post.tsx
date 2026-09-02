@@ -9,23 +9,12 @@ interface PostProps {
   onFlag: (id: string) => void;
 }
 
-
-
-
-  const encryptMessageLocally = async (text: string, recipientId: string): Promise<string> => {
-        try {
-        if (!supabase) return "ENCRYPTED_MOCK";
-        const { data, error } = await supabase.from('profiles').select('public_key').eq('anon_id', recipientId).single();
-        if (error || !data || !data.public_key) {
-            throw new Error("Public key not found for recipient.");
-        }
-        const pubKey = await importPublicKey(data.public_key);
-        return await encryptMessage(text, pubKey);
-        } catch (e) {
-        console.error("Encryption failed", e);
-        return "ENCRYPTED_MOCK";
-        }
-    };
+interface Comment {
+  id: string;
+  author_id: string;
+  content: string;
+  created_at?: string;
+}
 
 export default function Post({ post, onFlag }: PostProps) {
   const [isFollowing, setIsFollowing] = useState(false);
@@ -33,7 +22,7 @@ export default function Post({ post, onFlag }: PostProps) {
   const [isLiked, setIsLiked] = useState(false);
   const [likesCount, setLikesCount] = useState(0);
   const [isFlagged, setIsFlagged] = useState(false);
-  const [comments, setComments] = useState<Array<Record<string, unknown>>>([]);
+  const [comments, setComments] = useState<Comment[]>([]);
   const [newComment, setNewComment] = useState("");
   const [showComments, setShowComments] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -88,101 +77,138 @@ export default function Post({ post, onFlag }: PostProps) {
   }, [post.authorId, post.id]);
 
   const handleFollow = async () => {
+    if (isLoading) return;
     setIsLoading(true);
-    if (supabase && anonId) {
-      if (isFollowing) {
-        await supabase.from('follows').delete().eq('follower_id', anonId).eq('following_id', post.authorId);
-        setIsFollowing(false);
+    try {
+      if (supabase && anonId) {
+        if (isFollowing) {
+          const { error } = await supabase.from('follows').delete().eq('follower_id', anonId).eq('following_id', post.authorId);
+          if (error) alert("Error: " + error.message);
+          else setIsFollowing(false);
+        } else {
+          const { error } = await supabase.from('follows').insert([{ follower_id: anonId, following_id: post.authorId }]);
+          if (error) alert("Error: " + error.message);
+          else setIsFollowing(true);
+        }
       } else {
-        await supabase.from('follows').insert([{ follower_id: anonId, following_id: post.authorId }]);
-        setIsFollowing(true);
+        // Mock logic
+        const followedAuthors = JSON.parse(localStorage.getItem("followedAuthors") || "[]");
+        if (isFollowing) {
+          const updated = followedAuthors.filter((id: string) => id !== post.authorId);
+          localStorage.setItem("followedAuthors", JSON.stringify(updated));
+          setIsFollowing(false);
+        } else {
+          followedAuthors.push(post.authorId);
+          localStorage.setItem("followedAuthors", JSON.stringify(followedAuthors));
+          setIsFollowing(true);
+        }
       }
-    } else {
-      // Mock logic
-      const followedAuthors = JSON.parse(localStorage.getItem("followedAuthors") || "[]");
-      if (isFollowing) {
-        const updated = followedAuthors.filter((id: string) => id !== post.authorId);
-        localStorage.setItem("followedAuthors", JSON.stringify(updated));
-        setIsFollowing(false);
-      } else {
-        followedAuthors.push(post.authorId);
-        localStorage.setItem("followedAuthors", JSON.stringify(followedAuthors));
-        setIsFollowing(true);
-      }
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleSave = async () => {
+    if (isLoading) return;
     setIsLoading(true);
-    if (supabase && anonId) {
-      if (isSaved) {
-        await supabase.from('saves').delete().eq('user_id', anonId).eq('post_id', post.id);
-        setIsSaved(false);
+    try {
+      if (supabase && anonId) {
+        if (isSaved) {
+          const { error } = await supabase.from('saves').delete().eq('user_id', anonId).eq('post_id', post.id);
+          if (error) alert("Error: " + error.message);
+          else setIsSaved(false);
+        } else {
+          const { error } = await supabase.from('saves').insert([{ user_id: anonId, post_id: post.id }]);
+          if (error) alert("Error: " + error.message);
+          else setIsSaved(true);
+        }
       } else {
-        await supabase.from('saves').insert([{ user_id: anonId, post_id: post.id }]);
-        setIsSaved(true);
+        // Mock logic
+        const savedPosts = JSON.parse(localStorage.getItem("savedPosts") || "[]");
+        if (isSaved) {
+          const updated = savedPosts.filter((id: string) => id !== post.id);
+          localStorage.setItem("savedPosts", JSON.stringify(updated));
+          setIsSaved(false);
+        } else {
+          savedPosts.push(post.id);
+          localStorage.setItem("savedPosts", JSON.stringify(savedPosts));
+          setIsSaved(true);
+        }
       }
-    } else {
-      // Mock logic
-      const savedPosts = JSON.parse(localStorage.getItem("savedPosts") || "[]");
-      if (isSaved) {
-        const updated = savedPosts.filter((id: string) => id !== post.id);
-        localStorage.setItem("savedPosts", JSON.stringify(updated));
-        setIsSaved(false);
-      } else {
-        savedPosts.push(post.id);
-        localStorage.setItem("savedPosts", JSON.stringify(savedPosts));
-        setIsSaved(true);
-      }
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleLike = async () => {
-    if (!anonId) return;
+    if (!anonId || isLoading) return;
     setIsLoading(true);
-    if (supabase) {
-      if (isLiked) {
-        await supabase.from('likes').delete().eq('user_id', anonId).eq('post_id', post.id);
-        setIsLiked(false);
-        setLikesCount(prev => prev - 1);
-      } else {
-        await supabase.from('likes').insert([{ user_id: anonId, post_id: post.id }]);
-        setIsLiked(true);
-        setLikesCount(prev => prev + 1);
+    try {
+      if (supabase) {
+        if (isLiked) {
+          const { error } = await supabase.from('likes').delete().eq('user_id', anonId).eq('post_id', post.id);
+          if (error) alert("Error: " + error.message);
+          else {
+            setIsLiked(false);
+            setLikesCount(prev => prev - 1);
+          }
+        } else {
+          const { error } = await supabase.from('likes').insert([{ user_id: anonId, post_id: post.id }]);
+          if (error) alert("Error: " + error.message);
+          else {
+            setIsLiked(true);
+            setLikesCount(prev => prev + 1);
 
-        if (post.authorId !== anonId) {
-           await supabase.from('notifications').insert([{
-             user_id: post.authorId,
-             type: 'LIKE',
-             content: `User ${anonId} liked your post "${post.title.substring(0, 20)}..."`
-           }]);
+            if (post.authorId !== anonId) {
+               const { error: notifError } = await supabase.from('notifications').insert([{
+                 user_id: post.authorId,
+                 type: 'LIKE',
+                 content: `User ${anonId} liked your post "${post.title.substring(0, 20)}..."`
+               }]);
+               if (notifError) console.error("Notification error:", notifError);
+            }
+          }
         }
+      } else {
+         setIsLiked(!isLiked);
+         setLikesCount(prev => isLiked ? prev - 1 : prev + 1);
       }
-    } else {
-       setIsLiked(!isLiked);
-       setLikesCount(prev => isLiked ? prev - 1 : prev + 1);
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleMessage = async () => {
     const message = prompt(`ENTER ANONYMOUS MESSAGE FOR AUTHOR ${post.authorId}:`);
     if (message) {
       if (supabase && anonId) {
-        const encryptedMessage = await encryptMessageLocally(message, post.authorId);
-        if (!encryptedMessage || encryptedMessage === "ENCRYPTED_MOCK") {
-          alert(`ERROR: SECURE ENCRYPTION FAILED. MESSAGE ABORTED.`);
-          return;
+        try {
+          const { data, error: profileError } = await supabase.from('profiles').select('public_key').eq('anon_id', post.authorId).single();
+          if (profileError || !data || !data.public_key) {
+             throw new Error("Public key not found for recipient.");
+          }
+          const pubKey = await importPublicKey(data.public_key);
+          const encryptedMessage = await encryptMessage(message, pubKey);
+
+          if (!encryptedMessage) {
+            throw new Error("Encryption returned empty string");
+          }
+
+          const { error } = await supabase.from('messages').insert([{
+             sender_id: anonId,
+             receiver_id: post.authorId,
+             encrypted_content: encryptedMessage
+          }]);
+
+          if (error) {
+             alert(`Error: ${error.message}`);
+          } else {
+             alert(`MESSAGE SECURELY SENT TO AUTHOR ${post.authorId}`);
+          }
+        } catch (e) {
+           console.error("Encryption failed", e);
+           alert(`ERROR: SECURE ENCRYPTION FAILED. MESSAGE ABORTED.`);
         }
-        const { error } = await supabase.from('messages').insert([{
-           sender_id: anonId,
-           receiver_id: post.authorId,
-           encrypted_content: encryptedMessage
-        }]);
-        if (!error) alert(`MESSAGE SECURELY SENT TO AUTHOR ${post.authorId}`);
-        else alert(`ERROR SENDING MESSAGE.`);
       } else {
         alert(`MESSAGE SECURELY SENT TO AUTHOR ${post.authorId}`);
       }
@@ -200,11 +226,16 @@ export default function Post({ post, onFlag }: PostProps) {
   const submitComment = async () => {
      if (!newComment.trim() || !anonId) return;
      if (supabase) {
-        const { data } = await supabase.from('comments').insert([{
+        const { data, error } = await supabase.from('comments').insert([{
            post_id: post.id,
            author_id: anonId,
            content: newComment.trim()
         }]).select();
+
+        if (error) {
+           alert("Error: " + error.message);
+           return;
+        }
 
         if (data) {
            setComments([...comments, data[0]]);
@@ -212,11 +243,12 @@ export default function Post({ post, onFlag }: PostProps) {
 
            // Create a notification for the post author
            if (post.authorId !== anonId) {
-             await supabase.from('notifications').insert([{
+             const { error: notifError } = await supabase.from('notifications').insert([{
                user_id: post.authorId,
                type: 'COMMENT',
                content: `User ${anonId} commented on your post "${post.title.substring(0, 20)}..."`
              }]);
+             if (notifError) console.error("Notification error:", notifError);
            }
         }
      } else {
@@ -296,9 +328,9 @@ export default function Post({ post, onFlag }: PostProps) {
            ) : (
               <ul className="space-y-3 mb-4">
                  {comments.map(c => (
-                    <li key={c.id as string} className="font-mono text-xs border-l-2 border-black pl-2">
-                       <span className="font-bold mr-2">{c.author_id as string}:</span>
-                       {c.content as string}
+                    <li key={c.id} className="font-mono text-xs border-l-2 border-black pl-2">
+                       <span className="font-bold mr-2">{c.author_id}:</span>
+                       {c.content}
                     </li>
                  ))}
               </ul>
@@ -326,7 +358,7 @@ export default function Post({ post, onFlag }: PostProps) {
         <span className="text-xs uppercase font-mono">
           TYPE: {post.type} | FLAGS: {post.flags}
         </span>
-                {post.authorId !== anonId && (
+        {(!anonId || post.authorId !== anonId) && (
           <button
             onClick={() => {
                setIsFlagged(true);

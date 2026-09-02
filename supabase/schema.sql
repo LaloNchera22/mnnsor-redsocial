@@ -6,6 +6,7 @@ CREATE TABLE IF NOT EXISTS public.profiles (
   is_subscribed boolean default false,
   stripe_customer_id text,
   role text default 'user' check (role in ('user', 'admin')),
+  public_key text,
   created_at timestamp with time zone default timezone('utc'::text, now()) not null
 );
 
@@ -255,3 +256,14 @@ CREATE POLICY "Auth Insert" ON storage.objects FOR INSERT WITH CHECK ( bucket_id
 CREATE POLICY "Auth Update" ON storage.objects FOR UPDATE USING ( bucket_id = 'audio_uploads' AND auth.role() = 'authenticated' );
 CREATE POLICY "Auth Delete" ON storage.objects FOR DELETE USING ( bucket_id = 'audio_uploads' AND auth.role() = 'authenticated' );
 CREATE POLICY "Audio type/size constraints" ON storage.objects FOR INSERT WITH CHECK (bucket_id = 'audio_uploads' AND (LOWER(storage.extension(name)) = 'mp3' OR LOWER(storage.extension(name)) = 'wav' OR LOWER(storage.extension(name)) = 'ogg') AND coalesce(storage.size(name), 0) < 10485760);
+
+-- Webhook Idempotency
+CREATE TABLE IF NOT EXISTS public.webhook_events (
+  id text primary key,
+  type text not null,
+  created_at timestamp with time zone default timezone('utc'::text, now()) not null
+);
+ALTER TABLE public.webhook_events ENABLE ROW LEVEL SECURITY;
+
+-- Admin promotion
+CREATE POLICY "Admins can update profile roles." ON public.profiles FOR UPDATE USING (public.is_admin());

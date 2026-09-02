@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import { Post as PostType } from "@/lib/mockData";
 import { supabase } from "@/lib/supabase";
+import { importPublicKey, encryptMessage } from "@/lib/crypto";
+
 
 interface PostProps {
   post: PostType;
@@ -8,56 +10,22 @@ interface PostProps {
 }
 
 
-  const encryptMessage = async (text: string, recipientId: string): Promise<string> => {
-    try {
-       // Ideally we would fetch the recipient's public key from Supabase here.
-       // For this implementation, we will derive a key securely from the recipientId
-       // to act as a stand-in for true public key distribution without transmitting the key itself.
-       const encoder = new TextEncoder();
-       const data = encoder.encode(text);
 
-       // Derive a key from the recipientId string using PBKDF2
-       const keyMaterial = await window.crypto.subtle.importKey(
-         "raw",
-         encoder.encode(recipientId.padEnd(32, '0')), // pad to ensure sufficient length
-         "PBKDF2",
-         false,
-         ["deriveKey"]
-       );
 
-       const salt = window.crypto.getRandomValues(new Uint8Array(16));
-
-       const key = await window.crypto.subtle.deriveKey(
-         {
-           name: "PBKDF2",
-           salt: salt,
-           iterations: 100000,
-           hash: "SHA-256"
-         },
-         keyMaterial,
-         { name: "AES-GCM", length: 256 },
-         false,
-         ["encrypt", "decrypt"]
-       );
-
-       const iv = window.crypto.getRandomValues(new Uint8Array(12));
-       const encrypted = await window.crypto.subtle.encrypt(
-         { name: "AES-GCM", iv },
-         key,
-         data
-       );
-
-       const saltBase64 = btoa(String.fromCharCode.apply(null, Array.from(salt)));
-       const ivBase64 = btoa(String.fromCharCode.apply(null, Array.from(iv)));
-       const encryptedBase64 = btoa(String.fromCharCode.apply(null, Array.from(new Uint8Array(encrypted))));
-
-       // The recipient can derive the same key from their own ID and the provided salt.
-       // The key itself is NOT transmitted.
-       return `ENC:[AES-GCM]:${saltBase64}:${ivBase64}:${encryptedBase64}`;
-    } catch (e) {
-       return btoa(unescape(encodeURIComponent(text)));
-    }
-  };
+  const encryptMessageLocally = async (text: string, recipientId: string): Promise<string> => {
+        try {
+        if (!supabase) return "ENCRYPTED_MOCK";
+        const { data, error } = await supabase.from('profiles').select('public_key').eq('anon_id', recipientId).single();
+        if (error || !data || !data.public_key) {
+            throw new Error("Public key not found for recipient.");
+        }
+        const pubKey = await importPublicKey(data.public_key);
+        return await encryptMessage(text, pubKey);
+        } catch (e) {
+        console.error("Encryption failed", e);
+        return "ENCRYPTED_MOCK";
+        }
+    };
 
 export default function Post({ post, onFlag }: PostProps) {
   const [isFollowing, setIsFollowing] = useState(false);
@@ -203,7 +171,7 @@ export default function Post({ post, onFlag }: PostProps) {
     const message = prompt(`ENTER ANONYMOUS MESSAGE FOR AUTHOR ${post.authorId}:`);
     if (message) {
       if (supabase && anonId) {
-        const encryptedMessage = await encryptMessage(message, post.authorId);
+        const encryptedMessage = await encryptMessageLocally(message, post.authorId);
         const { error } = await supabase.from('messages').insert([{
            sender_id: anonId,
            receiver_id: post.authorId,
@@ -228,7 +196,7 @@ export default function Post({ post, onFlag }: PostProps) {
   const submitComment = async () => {
      if (!newComment.trim() || !anonId) return;
      if (supabase) {
-        const { data, error } = await supabase.from('comments').insert([{
+        const { data } = await supabase.from('comments').insert([{
            post_id: post.id,
            author_id: anonId,
            content: newComment.trim()

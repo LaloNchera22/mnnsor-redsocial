@@ -21,7 +21,7 @@ import { checkRateLimit } from '@/lib/rateLimit';
 
 export async function POST(req: Request) {
   const ip = req.headers.get('x-forwarded-for') || 'unknown';
-  if (!checkRateLimit(`webhook_${ip}`, 10, 60000)) {
+  if (!(await checkRateLimit(`webhook_${ip}`, 10, 60000))) {
     return NextResponse.json({ error: 'Too many requests. Please try again later.' }, { status: 429 });
   }
 
@@ -51,18 +51,21 @@ export async function POST(req: Request) {
       // Here, check if the event was already processed to avoid duplicated calls (using a simple global cache for simplicity/mock if supabase isn't used, but properly we would check the DB).
       // Let's add a basic check:
       if (supabaseAdmin) {
-         // Create a webhook_events table in reality, here we can just update safely or check an event log.
-         // Since we don't have a table for webhook idempotency, we will just continue to update the profile which is safely idempotent.
-         // However to strictly follow "webhook idempotency check" requirement, let's pretend we track it.
-         // A simple in-memory check for duplicate events (not persistent across instances but better than nothing):
+         const { error } = await supabaseAdmin.from('webhook_events').insert([{ id: eventId, type: event.type }]);
+         if (error) {
+           if (error.code === '23505') { // unique violation
+             return NextResponse.json({ received: true, note: 'Already processed' });
+           }
+           console.error("Error inserting webhook event", error);
+         }
+      } else {
+         const processedEvents = global as unknown as { __webhook_cache?: Set<string> };
+         if (!processedEvents.__webhook_cache) processedEvents.__webhook_cache = new Set();
+         if (processedEvents.__webhook_cache.has(eventId)) {
+            return NextResponse.json({ received: true, note: 'Already processed' });
+         }
+         processedEvents.__webhook_cache!.add(eventId);
       }
-
-      const processedEvents = global as unknown as { __webhook_cache?: Set<string> };
-      if (!processedEvents.__webhook_cache) processedEvents.__webhook_cache = new Set();
-      if (processedEvents.__webhook_cache.has(eventId)) {
-         return NextResponse.json({ received: true, note: 'Already processed' });
-      }
-      processedEvents.__webhook_cache!.add(eventId);
 
       const session = event.data.object as Stripe.Checkout.Session;
       const userId = session.client_reference_id;

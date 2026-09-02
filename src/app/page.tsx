@@ -3,6 +3,10 @@
 import { useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase";
+import { generateKeyPair, exportPublicKey, exportPrivateKey } from "@/lib/crypto";
+
+
+
 
 export default function Home() {
   const [isProcessing, setIsProcessing] = useState(false);
@@ -63,6 +67,8 @@ export default function Home() {
          setIsResetMode(false);
          return;
       }
+
+
       if (isLogin) {
         const { error: signInError } = await supabase.auth.signInWithPassword({
           email: username.trim(),
@@ -78,13 +84,32 @@ export default function Home() {
         if (error) throw error;
 
         if (data.user) {
-          // We need to generate the anonId regardless of whether session is null (due to email verification)
-          // so that the webhook can register their initial setup correctly.
-          const characters = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
-          let anonId = '';
-          for (let i = 0; i < 6; i++) {
-            anonId += characters.charAt(Math.floor(Math.random() * characters.length));
+          let publicKeyStr = '';
+          if (!localStorage.getItem("privateKey")) {
+             const keyPair = await generateKeyPair();
+             publicKeyStr = await exportPublicKey(keyPair.publicKey);
+             const privateKeyStr = await exportPrivateKey(keyPair.privateKey);
+             localStorage.setItem("privateKey", privateKeyStr);
           }
+
+
+          // Wait briefly for the trigger to create the profile
+          await new Promise(r => setTimeout(r, 1000));
+
+          // Fetch the auto-generated anonId
+          const { data: profileForAnon } = await supabase.from('profiles').select('anon_id').eq('id', data.user.id).single();
+          const anonId = profileForAnon ? profileForAnon.anon_id : data.user.id; // fallback to user id if anon_id is not available
+
+          if (publicKeyStr) {
+             const { data: profile } = await supabase.from('profiles').select('public_key').eq('id', data.user.id).single();
+             if (profile && !profile.public_key) {
+                await supabase.from('profiles').update({ public_key: publicKeyStr }).eq('id', data.user.id);
+             }
+          }
+
+
+
+
 
           // Real email verification note
           if (data.session === null) {

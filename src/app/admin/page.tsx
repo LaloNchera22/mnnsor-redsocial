@@ -10,6 +10,7 @@ export default function AdminDashboard() {
   const [auditLogs, setAuditLogs] = useState<Array<Record<string, unknown>>>([]);
   const [isAdmin, setIsAdmin] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [promoteUserId, setPromoteUserId] = useState("");
   const router = useRouter();
 
   const fetchFlaggedContent = useCallback(async () => {
@@ -74,6 +75,23 @@ export default function AdminDashboard() {
     };
     checkAdmin();
   }, [router, fetchFlaggedContent]);
+
+
+    const handlePromoteUser = async () => {
+        if (!promoteUserId.trim()) return;
+        if (supabase) {
+        const { error } = await supabase.from('profiles').update({ role: 'admin' }).eq('anon_id', promoteUserId.trim());
+        if (error) {
+            alert("FAILED TO PROMOTE USER: " + error.message);
+        } else {
+            alert("USER " + promoteUserId + " PROMOTED TO ADMIN");
+            setPromoteUserId("");
+        }
+        } else {
+        alert("MOCK PROMOTE SUCCESSFUL");
+        setPromoteUserId("");
+        }
+    };
 
   const handleAction = async (postId: string, action: 'keep' | 'remove') => {
     if (supabase) {
@@ -160,6 +178,26 @@ export default function AdminDashboard() {
           </div>
         )}
       </section>
+
+
+        <section className="mb-12 pt-8 border-t-4 border-black">
+            <h2 className="text-xl font-bold mb-6 uppercase tracking-tight">Promote User to Admin</h2>
+            <div className="flex gap-4 border border-black p-4 bg-gray-50">
+            <input
+                type="text"
+                value={promoteUserId}
+                onChange={(e) => setPromoteUserId(e.target.value)}
+                placeholder="ENTER USER ANON_ID..."
+                className="flex-1 border border-black px-4 py-2 font-mono uppercase focus:outline-none focus:ring-1 focus:ring-black"
+            />
+            <button
+                onClick={handlePromoteUser}
+                className="bg-black text-white px-6 py-2 uppercase font-bold hover:bg-gray-800 transition-colors"
+            >
+                PROMOTE
+            </button>
+            </div>
+        </section>
 
       <section className="mt-16 pt-8 border-t-4 border-black">
         <h2 className="text-xl font-bold mb-6 uppercase tracking-tight">Audit Logs</h2>

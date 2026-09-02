@@ -18,3 +18,30 @@ vi.mock('stripe', () => {
   };
   return { default: stripeClass };
 });
+
+if (typeof window !== 'undefined') {
+  // Mock Web Crypto API
+  Object.defineProperty(window, 'crypto', {
+    value: {
+      subtle: {
+        generateKey: vi.fn(),
+        exportKey: vi.fn(),
+        importKey: vi.fn(),
+        encrypt: vi.fn(),
+        decrypt: vi.fn(),
+      }
+    }
+  });
+
+  // Mock Intersection Observer
+  class IntersectionObserver {
+    observe = vi.fn()
+    disconnect = vi.fn()
+    unobserve = vi.fn()
+  }
+  Object.defineProperty(window, 'IntersectionObserver', {
+    writable: true,
+    configurable: true,
+    value: IntersectionObserver,
+  });
+}

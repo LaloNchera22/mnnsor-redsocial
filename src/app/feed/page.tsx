@@ -347,9 +347,12 @@ export default function Feed() {
              ) : (
                <ul className="space-y-4">
                  {notifications.map(n => (
-                   <li key={n.id as string} className={`font-mono text-xs border-l-2 ${n.read ? 'border-gray-400 text-gray-600' : 'border-black'} pl-2`}>
-                     <span className="font-bold text-red-600 mr-2">[{n.type as string}]</span>
-                     {n.content as string}
+                   <li key={n.id as string} className={`font-mono text-xs border-l-2 ${n.read ? 'border-gray-400 text-gray-600' : 'border-black'} pl-2 flex justify-between items-start`}>
+                     <div>
+                       <span className="font-bold text-red-600 mr-2">[{n.type as string}]</span>
+                       {n.content as string}
+                     </div>
+                     {!n.read && <button onClick={() => handleMarkAsRead(n.id as string)} className="text-[10px] uppercase underline ml-2 hover:text-gray-600">MARK READ</button>}
                    </li>
                  ))}
                </ul>

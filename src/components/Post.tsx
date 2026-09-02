@@ -1,3 +1,4 @@
+"use client";
 import { useState, useEffect } from "react";
 import { Post as PostType } from "@/lib/mockData";
 import { supabase } from "@/lib/supabase";

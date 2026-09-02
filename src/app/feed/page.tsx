@@ -1,4 +1,5 @@
 "use client";
+import { useToast } from '@/components/Toast';
 
 import { useState, useEffect, useCallback } from "react";
 import { useRouter } from "next/navigation";
@@ -9,6 +10,8 @@ import { supabase } from "@/lib/supabase";
 import { useInView } from "react-intersection-observer";
 
 export default function Feed() {
+  const { showToast } = useToast();
+
   const [posts, setPosts] = useState<PostType[]>([]);
   const [anonId, setAnonId] = useState<string>("UNKNOWN");
   const [showDowngradeWarning, setShowDowngradeWarning] = useState(false);
@@ -212,7 +215,7 @@ export default function Feed() {
     try {
       const rlRes = await fetch('/api/rate-limit', { method: 'POST', body: JSON.stringify({ action: 'post' }) });
       if (!rlRes.ok) {
-         alert("RATE LIMIT EXCEEDED FOR POSTS. PLEASE WAIT.");
+         showToast("RATE LIMIT EXCEEDED FOR POSTS. PLEASE WAIT.", "info");
          return;
       }
     } catch(_e) {}
@@ -250,7 +253,7 @@ export default function Feed() {
     try {
       const rlRes = await fetch('/api/rate-limit', { method: 'POST', body: JSON.stringify({ action: 'flag' }) });
       if (!rlRes.ok) {
-         alert("RATE LIMIT EXCEEDED FOR FLAGS. PLEASE WAIT.");
+         showToast("RATE LIMIT EXCEEDED FOR FLAGS. PLEASE WAIT.", "info");
          return;
       }
     } catch(_e) {}
@@ -258,7 +261,7 @@ export default function Feed() {
     // Check locally if already flagged
     const localFlags = JSON.parse(localStorage.getItem("flagged_posts") || "[]");
     if (localFlags.includes(id)) {
-      alert("YOU HAVE ALREADY FLAGGED THIS CONTENT.");
+      showToast("YOU HAVE ALREADY FLAGGED THIS CONTENT.", "info");
       return;
     }
 
@@ -267,7 +270,7 @@ export default function Feed() {
        const { error } = await supabase.from('post_flags').insert([{ post_id: id, user_id: anonId }]);
        if (error) {
          if (error.code === '23505') { // Unique constraint violation
-            alert("YOU HAVE ALREADY FLAGGED THIS CONTENT.");
+            showToast("YOU HAVE ALREADY FLAGGED THIS CONTENT.", "info");
          }
          return;
        }
@@ -277,7 +280,7 @@ export default function Feed() {
          setPosts(posts.map(p => p.id === id ? { ...p, flags: p.flags + 1 } : p));
 
          // Visual confirmation for reporter
-         alert("CONTENT FLAGGED FOR MODERATION.");
+         showToast("CONTENT FLAGGED FOR MODERATION.", "info");
        }
     } else {
       const updated = posts.map(p => {
@@ -286,7 +289,7 @@ export default function Feed() {
       });
       setPosts(updated);
       localStorage.setItem("mockPosts", JSON.stringify(updated));
-      alert("CONTENT FLAGGED FOR MODERATION.");
+      showToast("CONTENT FLAGGED FOR MODERATION.", "info");
     }
 
     // Save to local flags array

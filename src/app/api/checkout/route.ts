@@ -28,7 +28,7 @@ export async function POST(req: Request) {
     let sessionUrl;
 
     if (type === 'setup') {
-      // One-time payment for setup ($10)
+      // One-time payment for setup ($5)
       const session = await stripe.checkout.sessions.create({
         payment_method_types: ['card'], // Real implementation might use crypto gateways as mentioned
         line_items: [
@@ -38,7 +38,7 @@ export async function POST(req: Request) {
               product_data: {
                 name: 'Account Setup',
               },
-              unit_amount: 1000,
+              unit_amount: 500,
             },
             quantity: 1,
           },
@@ -49,29 +49,6 @@ export async function POST(req: Request) {
         client_reference_id: userId,
         metadata: {
           type: 'setup',
-          userId,
-        },
-      });
-      sessionUrl = session.url;
-    } else if (type === 'subscription') {
-      if (!process.env.STRIPE_MONTHLY_PRICE_ID) {
-        return NextResponse.json({ error: 'Monthly price ID is not configured.' }, { status: 500 });
-      }
-      // Monthly subscription ($5)
-      const session = await stripe.checkout.sessions.create({
-        payment_method_types: ['card'],
-        line_items: [
-          {
-            price: process.env.STRIPE_MONTHLY_PRICE_ID, // Use a price ID from Stripe Dashboard
-            quantity: 1,
-          },
-        ],
-        mode: 'subscription',
-        success_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/feed?success=true`,
-        cancel_url: `${process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'}/?canceled=true`,
-        client_reference_id: userId,
-        metadata: {
-          type: 'subscription',
           userId,
         },
       });

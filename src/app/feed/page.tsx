@@ -20,8 +20,7 @@ interface Notification {
 export default function Feed() {
   const [posts, setPosts] = useState<PostType[]>([]);
   const [anonId, setAnonId] = useState<string>("UNKNOWN");
-  const [showDowngradeWarning, setShowDowngradeWarning] = useState(false);
-  const [searchQuery, setSearchQuery] = useState("");
+    const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearch, setDebouncedSearch] = useState("");
   const [page, setPage] = useState(1);
   const [showNotifications, setShowNotifications] = useState(false);
@@ -120,9 +119,7 @@ export default function Feed() {
          const { data: profile } = await supabase.from('profiles').select('anon_id, has_paid_setup, is_subscribed').eq('id', session.user.id).single();
          if (profile) {
             currentAnonId = profile.anon_id;
-            if (profile.has_paid_setup && !profile.is_subscribed) {
-               setShowDowngradeWarning(true);
-            }
+
          }
       } else {
         const storedUser = localStorage.getItem("anonUser");
@@ -132,9 +129,7 @@ export default function Feed() {
         }
         const user = JSON.parse(storedUser);
         currentAnonId = user.id;
-        if (user.hasPaidSetup && !user.isSubscribed) {
-           setShowDowngradeWarning(true);
-        }
+
         if (!localStorage.getItem("mockPosts")) {
           localStorage.setItem("mockPosts", JSON.stringify(initialPosts));
         }
@@ -384,14 +379,7 @@ export default function Feed() {
       </header>
 
 
-      {showDowngradeWarning && (
-        <div className="mb-8 border border-red-600 bg-red-50 p-4 text-center">
-          <p className="font-mono text-sm text-red-600 font-bold uppercase mb-2">YOUR MONTHLY SUBSCRIPTION HAS EXPIRED OR BEEN CANCELED.</p>
-          <button onClick={() => router.push('/')} className="px-4 py-2 bg-red-600 text-white font-bold uppercase text-xs">
-            RENEW SUBSCRIPTION
-          </button>
-        </div>
-      )}
+
 
       <section>
         <CreatePost onCreate={handleCreatePost} />

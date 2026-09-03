@@ -258,6 +258,51 @@ export default function Post({ post, onFlag }: PostProps) {
      }
   };
 
+  const renderContent = (text: string) => {
+     // Simple regex to match [type](url)
+     const regex = /\[(image|video|audio|file)\]\((https?:\/\/[^\s]+)\)/gi;
+     const parts = [];
+     let lastIndex = 0;
+     let match;
+
+     while ((match = regex.exec(text)) !== null) {
+        if (match.index > lastIndex) {
+           parts.push(<span key={lastIndex}>{text.substring(lastIndex, match.index)}</span>);
+        }
+
+        const type = match[1];
+        const url = match[2];
+
+        if (type === 'image') {
+           parts.push(
+              <img key={match.index} src={url} alt="Post content" className="w-full h-auto border border-black my-4 block" loading="lazy" />
+           );
+        } else if (type === 'video') {
+           parts.push(
+              <video key={match.index} src={url} controls className="w-full h-auto border border-black my-4 block" />
+           );
+        } else if (type === 'audio') {
+           parts.push(
+              <audio key={match.index} src={url} controls className="w-full my-4 block" />
+           );
+        } else {
+           parts.push(
+              <a key={match.index} href={url} target="_blank" rel="noopener noreferrer" className="underline hover:text-gray-600 my-4 block">
+                 [ATTACHED FILE]
+              </a>
+           );
+        }
+
+        lastIndex = match.index + match[0].length;
+     }
+
+     if (lastIndex < text.length) {
+        parts.push(<span key={lastIndex}>{text.substring(lastIndex)}</span>);
+     }
+
+     return <>{parts}</>;
+  };
+
   return (
     <article className="border border-black p-6 mb-8 bg-white" aria-labelledby={`post-title-${post.id}`}>
       <header className="mb-4 border-b border-black pb-2 flex flex-col md:flex-row md:justify-between md:items-baseline gap-2">
@@ -276,7 +321,7 @@ export default function Post({ post, onFlag }: PostProps) {
             </a>
           </div>
         ) : (
-          post.content
+          renderContent(post.content)
         )}
       </div>
 

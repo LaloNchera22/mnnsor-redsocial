@@ -52,7 +52,7 @@ export default function AdminDashboard() {
         const { data: profile, error } = await supabase.from('profiles').select('role, anon_id').eq('id', session.user.id).single();
 
         if (error || profile?.role !== 'admin') {
-          router.push("/feed"); // Not admin, redirect to feed
+          router.push("/"); // Not admin, redirect to feed
           return;
         }
 
@@ -69,7 +69,7 @@ export default function AdminDashboard() {
         }
         const user = JSON.parse(userStr);
         if (user.role !== 'admin') {
-           router.push("/feed");
+           router.push("/");
            return;
         }
         setIsAdmin(true);

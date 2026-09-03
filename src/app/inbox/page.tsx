@@ -92,7 +92,7 @@ export default function InboxPage() {
           <h1 className="text-3xl font-bold tracking-tighter uppercase">Inbox</h1>
           <p className="font-mono text-sm uppercase mt-2 text-gray-600">Encrypted Communications</p>
         </div>
-        <button onClick={() => router.push('/feed')} className="text-xs font-bold uppercase underline hover:text-gray-600">
+        <button onClick={() => router.push('/')} className="text-xs font-bold uppercase underline hover:text-gray-600">
            BACK TO FEED
         </button>
       </header>

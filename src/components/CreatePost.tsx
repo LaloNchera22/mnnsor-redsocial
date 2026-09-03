@@ -3,12 +3,14 @@
 import { useState } from "react";
 import { PostType } from "@/lib/mockData";
 import { supabase } from "@/lib/supabase";
+import { useToast } from "@/components/Toast";
 
 interface CreatePostProps {
   onCreate: (title: string, content: string, type: PostType, tag: string) => void;
 }
 
 export default function CreatePost({ onCreate }: CreatePostProps) {
+  const { showToast } = useToast();
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
   const [file, setFile] = useState<File | null>(null);
@@ -78,7 +80,7 @@ export default function CreatePost({ onCreate }: CreatePostProps) {
       setIsExpanded(false);
     } catch (error) {
        console.error("Submit error:", error);
-       alert("Error submitting post.");
+       showToast("ERROR SUBMITTING POST.", "error");
     } finally {
        setIsSubmitting(false);
     }
@@ -164,13 +166,70 @@ export default function CreatePost({ onCreate }: CreatePostProps) {
         <div>
           <label className="block text-xs font-bold uppercase mb-2">CONTENT</label>
           {type === "document" ? (
-            <textarea
-              value={content}
-              onChange={(e) => setContent(e.target.value)}
-              className="w-full border border-black p-2 font-mono text-sm h-32 focus:outline-none focus:ring-1 focus:ring-black resize-none"
-              placeholder="WRITE YOUR DOCUMENT HERE..."
-              required
-            />
+            <div className="flex flex-col gap-2">
+               <input
+                 type="file"
+                 accept="image/*,video/*,audio/*"
+                 onChange={async (e) => {
+                    const selectedFile = e.target.files?.[0];
+                    if (!selectedFile) return;
+                    if (selectedFile.size > 10 * 1024 * 1024) {
+                       showToast("FILE SIZE EXCEEDS 10MB LIMIT", "error");
+                       e.target.value = "";
+                       return;
+                    }
+                    if (supabase) {
+                       setIsSubmitting(true);
+                       try {
+                           const fileExt = selectedFile.name.split('.').pop();
+                           const fileName = `${Math.random()}.${fileExt}`;
+                           const { error: uploadError } = await supabase.storage.from('media_uploads').upload(fileName, selectedFile);
+                           if (uploadError) {
+                               // Fallback to audio_uploads if media_uploads bucket doesn't exist
+                               const { error: audioError } = await supabase.storage.from('audio_uploads').upload(fileName, selectedFile);
+                               if (audioError) throw audioError;
+                               const { data } = supabase.storage.from('audio_uploads').getPublicUrl(fileName);
+                               let mediaType = "file";
+                               if (selectedFile.type.startsWith('image/')) mediaType = "image";
+                               if (selectedFile.type.startsWith('video/')) mediaType = "video";
+                               if (selectedFile.type.startsWith('audio/')) mediaType = "audio";
+                               setContent((prev) => prev + `\n[${mediaType}](${data.publicUrl})`);
+                           } else {
+                               const { data } = supabase.storage.from('media_uploads').getPublicUrl(fileName);
+                               let mediaType = "file";
+                               if (selectedFile.type.startsWith('image/')) mediaType = "image";
+                               if (selectedFile.type.startsWith('video/')) mediaType = "video";
+                               if (selectedFile.type.startsWith('audio/')) mediaType = "audio";
+                               setContent((prev) => prev + `\n[${mediaType}](${data.publicUrl})`);
+                           }
+                           showToast("MEDIA ATTACHED SUCCESSFULLY.", "success");
+                       } catch (err) {
+                           console.error(err);
+                           showToast("FAILED TO UPLOAD MEDIA.", "error");
+                       } finally {
+                           setIsSubmitting(false);
+                           e.target.value = "";
+                       }
+                    } else {
+                        // Mock local upload
+                        let mediaType = "file";
+                        if (selectedFile.type.startsWith('image/')) mediaType = "image";
+                        if (selectedFile.type.startsWith('video/')) mediaType = "video";
+                        if (selectedFile.type.startsWith('audio/')) mediaType = "audio";
+                        setContent((prev) => prev + `\n[${mediaType}](https://example.com/mock-${mediaType})`);
+                        e.target.value = "";
+                    }
+                 }}
+                 className="w-full border border-black p-2 font-mono text-sm focus:outline-none focus:ring-1 focus:ring-black mb-2"
+               />
+              <textarea
+                value={content}
+                onChange={(e) => setContent(e.target.value)}
+                className="w-full border border-black p-2 font-mono text-sm h-32 focus:outline-none focus:ring-1 focus:ring-black resize-none"
+                placeholder="WRITE YOUR DOCUMENT HERE... MEDIA LINKS WILL APPEAR HERE WHEN UPLOADED."
+                required
+              />
+            </div>
           ) : (
             <div className="flex flex-col gap-2">
                <input

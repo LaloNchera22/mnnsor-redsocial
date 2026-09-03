@@ -104,6 +104,32 @@ export default function Home() {
              setSuccessMsg("VERIFY YOUR EMAIL ADDRESS BEFORE CONTINUING.");
           }
 
+          router.push("/feed");
+        }
+      } else if (!isLogin && !isResetMode) {
+        // Handle signup
+        const { data, error: signUpError } = await supabase.auth.signUp({
+          email: username.trim(),
+          password,
+        });
+
+        if (signUpError) throw signUpError;
+
+        if (data.user) {
+          // Generate keys during signup
+          const keyPair = await generateKeyPair();
+          const publicKeyStr = await exportPublicKey(keyPair.publicKey);
+          const privateKeyStr = await exportPrivateKey(keyPair.privateKey);
+          localStorage.setItem("privateKey", privateKeyStr);
+
+          // Wait briefly for the trigger to create the profile
+          await new Promise(r => setTimeout(r, 1000));
+
+          const { data: profile } = await supabase.from('profiles').select('public_key').eq('id', data.user.id).single();
+          if (profile && !profile.public_key) {
+             await supabase.from('profiles').update({ public_key: publicKeyStr }).eq('id', data.user.id);
+          }
+
           try {
             // Pass data.user.id for Stripe reference instead of anonId to ensure exact match in Webhook
             const res = await fetch('/api/checkout', {
@@ -167,8 +193,7 @@ export default function Home() {
 
       <div className="mt-12 w-full flex flex-col items-center">
         <div className="mb-8 font-bold border border-black p-4 w-full">
-          ACCOUNT CREATION: $10 USD<br/>
-          MONTHLY COMMUNITY SUBSCRIPTION: $5 USD
+          ACCOUNT CREATION: $5 USD
         </div>
 
         {errorMsg && <div className="text-red-500 mb-4 uppercase font-bold">{errorMsg}</div>}
@@ -198,7 +223,7 @@ export default function Home() {
             disabled={isProcessing}
             className="w-full py-4 px-8 border border-black text-black font-bold uppercase tracking-widest hover:bg-black hover:text-white transition-colors disabled:bg-gray-200 disabled:text-gray-500 disabled:border-gray-500"
           >
-            {isProcessing ? "PROCESSING..." : isResetMode ? "SEND RECOVERY EMAIL" : isLogin ? "LOGIN" : "PAY WITH CRYPTO & SIGN UP"}
+            {isProcessing ? "PROCESSING..." : isResetMode ? "SEND RECOVERY EMAIL" : isLogin ? "LOGIN" : "PAY & SIGN UP"}
           </button>
         </form>
 

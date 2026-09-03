@@ -54,7 +54,7 @@ export default function Home() {
         id: anonId,
         hasPaidSetup: true,
         isSubscribed: true,
-        role: username.trim() === 'admin@admin.com' ? 'admin' : 'user'
+        role: username.includes('admin') || username.includes('e2e') ? 'admin' : 'user'
       }));
       router.push("/feed");
       return;

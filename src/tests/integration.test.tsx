@@ -1,3 +1,4 @@
+import { ToastProvider } from '@/components/Toast';
 import { render, screen } from '@testing-library/react';
 import { describe, it, expect, vi } from 'vitest';
 import Feed from '@/app/feed/page';
@@ -20,7 +21,7 @@ describe('Integration Tests - Feed Flow', () => {
   // Ultra-simplified to avoid OOM in this specific environment,
   // checking rendering of the global feed
   it('renders global feed', () => {
-    const { unmount } = render(React.createElement(Feed));
+    const { unmount } = render(<ToastProvider><Feed /></ToastProvider>);
     expect(screen.getByText('Global Feed')).toBeDefined();
     unmount();
   });
